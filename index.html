@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#c2410c"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<title>Grocery Expense Tracker</title>
+<link rel="manifest" href="manifest.json"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+input,select,button,textarea{font-family:inherit}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:4px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const{useState,useRef,useEffect,useMemo,useCallback}=React;
+
+const LS={
+  get(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch{return null}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+};
+
+const CATEGORIES=["Produce","Dairy","Meat & Seafood","Frozen","Bakery","Beverages","Snacks","Pantry","Household","Other"];
+const CAT_ICONS={"Produce":"🥬","Dairy":"🧀","Meat & Seafood":"🥩","Frozen":"🧊","Bakery":"🍞","Beverages":"🥤","Snacks":"🍿","Pantry":"🥫","Household":"🧹","Other":"📦"};
+const CAT_CLR={"Produce":"#22c55e","Dairy":"#eab308","Meat & Seafood":"#ef4444","Frozen":"#06b6d4","Bakery":"#f59e0b","Beverages":"#8b5cf6","Snacks":"#f97316","Pantry":"#78716c","Household":"#3b82f6","Other":"#6b7280"};
+
+// Combined state + local grocery tax rates (state + avg local combined)
+const GROCERY_TAX={
+  "AL":9.22,"AK":1.76,"AZ":8.37,"AR":9.47,"CA":0,"CO":7.65,"CT":0,"DE":0,
+  "FL":0,"GA":7.31,"HI":4.35,"ID":6.03,"IL":0,"IN":0,"IA":0,"KS":8.68,
+  "KY":0,"LA":9.52,"ME":0,"MD":0,"MA":0,"MI":0,"MN":0,"MS":7.07,
+  "MO":8.27,"MT":0,"NE":6.94,"NV":8.23,"NH":0,"NJ":0,"NM":7.82,
+  "NY":0,"NC":6.98,"ND":6.96,"OH":0,"OK":8.94,"OR":0,"PA":0,
+  "RI":0,"SC":7.43,"SD":6.40,"TN":9.547,"TX":0,"UT":3.0,"VT":0,
+  "VA":2.5,"WA":0,"WV":0,"WI":0,"WY":5.36,"DC":6
+};
+const STATE_NAMES={"AL":"Alabama","AK":"Alaska","AZ":"Arizona","AR":"Arkansas","CA":"California","CO":"Colorado","CT":"Connecticut","DE":"Delaware","FL":"Florida","GA":"Georgia","HI":"Hawaii","ID":"Idaho","IL":"Illinois","IN":"Indiana","IA":"Iowa","KS":"Kansas","KY":"Kentucky","LA":"Louisiana","ME":"Maine","MD":"Maryland","MA":"Massachusetts","MI":"Michigan","MN":"Minnesota","MS":"Mississippi","MO":"Missouri","MT":"Montana","NE":"Nebraska","NV":"Nevada","NH":"New Hampshire","NJ":"New Jersey","NM":"New Mexico","NY":"New York","NC":"North Carolina","ND":"North Dakota","OH":"Ohio","OK":"Oklahoma","OR":"Oregon","PA":"Pennsylvania","RI":"Rhode Island","SC":"South Carolina","SD":"South Dakota","TN":"Tennessee","TX":"Texas","UT":"Utah","VT":"Vermont","VA":"Virginia","WA":"Washington","WV":"West Virginia","WI":"Wisconsin","WY":"Wyoming","DC":"Washington DC"};
+const STATES=Object.keys(GROCERY_TAX).sort();
+const WU=["lb","oz","kg","g"];
+const WP=[0.5,1,1.5,2,3,5];
+
+const THEMES={
+  mint:{name:"Neon Mint",icon:"🌿",bg:"#0f1419",card:"rgba(255,255,255,0.06)",cb:"rgba(52,211,153,0.15)",tx:"#e2e8f0",tx2:"#94a3b8",ac:"#34d399",acd:"#059669",act:"#022c22",hd:"linear-gradient(135deg,#064e3b,#065f46)",tab:"#1a2332",bar:"rgba(255,255,255,0.04)",inp:"rgba(255,255,255,0.08)",inb:"rgba(255,255,255,0.12)",sh:"0 2px 8px rgba(0,0,0,0.3)",gl:"0 0 20px rgba(52,211,153,0.15)"},
+  sunset:{name:"Sunset",icon:"🌅",bg:"#fef7f0",card:"#ffffff",cb:"rgba(251,146,60,0.15)",tx:"#1c1917",tx2:"#78716c",ac:"#f97316",acd:"#ea580c",act:"#ffffff",hd:"linear-gradient(135deg,#f97316,#ef4444)",tab:"#ffffff",bar:"#fef3c7",inp:"#ffffff",inb:"#e7e5e4",sh:"0 2px 8px rgba(0,0,0,0.06)",gl:"none"},
+  purple:{name:"Electric Purple",icon:"💜",bg:"#0c0a1a",card:"rgba(255,255,255,0.05)",cb:"rgba(167,139,250,0.15)",tx:"#e2e8f0",tx2:"#94a3b8",ac:"#a78bfa",acd:"#7c3aed",act:"#1e1b4b",hd:"linear-gradient(135deg,#312e81,#4c1d95)",tab:"#131028",bar:"rgba(255,255,255,0.04)",inp:"rgba(255,255,255,0.08)",inb:"rgba(255,255,255,0.12)",sh:"0 2px 8px rgba(0,0,0,0.4)",gl:"0 0 20px rgba(167,139,250,0.15)"},
+  ocean:{name:"Ocean Blue",icon:"🌊",bg:"#f0f5fa",card:"#ffffff",cb:"rgba(59,130,246,0.1)",tx:"#0f172a",tx2:"#64748b",ac:"#3b82f6",acd:"#2563eb",act:"#ffffff",hd:"linear-gradient(135deg,#2563eb,#0ea5e9)",tab:"#ffffff",bar:"#eff6ff",inp:"#ffffff",inb:"#e2e8f0",sh:"0 2px 8px rgba(0,0,0,0.06)",gl:"none"},
+};
+
+/* ── Numpad ── */
+function Pad({t,value,onChange,onDone,onCancel,label}){
+  const p=d=>{if(d==="."&&value.includes("."))return;if(value.includes(".")&&value.split(".")[1]?.length>=2)return;onChange(value+d);};
+  const bs={background:t.bar,color:t.tx,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,fontSize:18,fontWeight:600,height:48,cursor:"pointer",userSelect:"none",border:"none"};
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:400,borderRadius:"16px 16px 0 0",padding:12,paddingBottom:20,background:t.bg,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        {label&&<p style={{textAlign:"center",fontSize:12,marginBottom:4,color:t.tx2}}>{label}</p>}
+        <div style={{textAlign:"center",marginBottom:8}}><span style={{fontSize:24,fontWeight:700,color:t.ac}}>{value||"0"}</span></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+          {[1,2,3,4,5,6,7,8,9].map(n=><button key={n} style={bs} onClick={()=>p(String(n))}>{n}</button>)}
+          <button style={bs} onClick={()=>p(".")}>.</button>
+          <button style={bs} onClick={()=>p("0")}>0</button>
+          <button style={bs} onClick={()=>onChange(value.slice(0,-1))}>⌫</button>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          <button onClick={onCancel} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={onDone} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Price Entry ── */
+function PriceModal({t,item,onSave,onCancel}){
+  const[mode,setMode]=useState(item.pm||"fixed");
+  const[step,setStep]=useState("idle");
+  const[fv,setFv]=useState(item.pm==="fixed"&&item.price>0?String(item.price):"");
+  const[up,setUp]=useState(item.up>0?String(item.up):"");
+  const[wt,setWt]=useState(item.wt>0?String(item.wt):"");
+  const[wu,setWu]=useState(item.wu||"lb");
+  const est=(parseFloat(up)||0)*(parseFloat(wt)||0);
+  if(step==="nf") return (<Pad t={t} label="Enter Price" value={fv} onChange={setFv} onDone={()=>onSave({pm:"fixed",price:parseFloat(fv)||0,up:0,wt:0,wu:"lb"})} onCancel={()=>setStep("idle")}/>);
+  if(step==="nu") return (<Pad t={t} label={`Price per ${wu}`} value={up} onChange={setUp} onDone={()=>setStep("idle")} onCancel={()=>setStep("idle")}/>);
+  if(step==="nw") return (<Pad t={t} label={`Weight (${wu})`} value={wt} onChange={setWt} onDone={()=>setStep("idle")} onCancel={()=>setStep("idle")}/>);
+  const tb={background:t.bar,color:t.tx2,border:"none",padding:"8px 0",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",flex:1};
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,borderRadius:16,overflow:"hidden",background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}>
+          <h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>Set Price</h3>
+          <p style={{fontSize:12,textAlign:"center",marginTop:2,color:t.tx2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</p>
+        </div>
+        <div style={{display:"flex",margin:12,borderRadius:8,padding:2,background:t.bar}}>
+          <button onClick={()=>setMode("fixed")} style={{...tb,background:mode==="fixed"?t.ac:"transparent",color:mode==="fixed"?t.act:t.tx2}}>💲 Fixed</button>
+          <button onClick={()=>setMode("weight")} style={{...tb,background:mode==="weight"?t.ac:"transparent",color:mode==="weight"?t.act:t.tx2}}>⚖️ Weight</button>
+        </div>
+        <div style={{padding:"0 12px 12px"}}>
+          {mode==="fixed"?(
+            <div onClick={()=>setStep("nf")} style={{padding:"20px 0",borderRadius:12,border:`2px dashed ${t.cb}`,display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer"}}>
+              <span style={{fontSize:24,fontWeight:700,color:t.ac}}>${fv||"0.00"}</span>
+              <span style={{fontSize:11,marginTop:4,color:t.tx2}}>Tap to enter</span>
+            </div>
+          ):(
+            <div>
+              <div style={{display:"flex",gap:4,marginBottom:8}}>{WU.map(u=><button key={u} onClick={()=>setWu(u)} style={{...tb,background:wu===u?t.ac:t.bar,color:wu===u?t.act:t.tx2}}>{u}</button>)}</div>
+              <div onClick={()=>setStep("nu")} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:12,borderRadius:8,border:`1px dashed ${t.cb}`,marginBottom:6,cursor:"pointer"}}>
+                <span style={{fontSize:12,color:t.tx2}}>Per {wu}</span><span style={{fontSize:18,fontWeight:700,color:t.ac}}>${up||"0.00"}</span>
+              </div>
+              <div onClick={()=>setStep("nw")} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:12,borderRadius:8,border:`1px dashed ${t.cb}`,marginBottom:8,cursor:"pointer"}}>
+                <span style={{fontSize:12,color:t.tx2}}>Weight</span><span style={{fontSize:18,fontWeight:700,color:t.ac}}>{wt||"0"} {wu}</span>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>{WP.map(p=><button key={p} onClick={()=>setWt(String(p))} style={{...tb,flex:"none",padding:"4px 10px",background:parseFloat(wt)===p?t.ac:t.bar,color:parseFloat(wt)===p?t.act:t.tx2}}>{p} {wu}</button>)}</div>
+              {(parseFloat(up)>0&&parseFloat(wt)>0)&&<div style={{borderRadius:8,padding:10,display:"flex",alignItems:"center",justifyContent:"space-between",background:t.bar}}><span style={{fontSize:12,color:t.ac}}>{wt}{wu}×${up}/{wu}</span><span style={{fontWeight:700,color:t.ac}}>${est.toFixed(2)}</span></div>}
+            </div>
+          )}
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onCancel} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>{mode==="fixed"?onSave({pm:"fixed",price:parseFloat(fv)||0,up:0,wt:0,wu:"lb"}):onSave({pm:"weight",price:est,up:parseFloat(up)||0,wt:parseFloat(wt)||0,wu})}} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Category Picker ── */
+function CatPick({t,onSelect,onClose}){
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:55,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.5)"}}>
+      <div style={{borderRadius:16,padding:12,width:280,maxHeight:"80vh",overflowY:"auto",background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <h3 style={{fontWeight:700,fontSize:14,marginBottom:8,textAlign:"center",color:t.tx}}>Category</h3>
+        {CATEGORIES.map(c=><div key={c} onClick={()=>onSelect(c)} style={{display:"flex",alignItems:"center",gap:8,padding:8,borderRadius:8,cursor:"pointer",color:t.tx}}><span>{CAT_ICONS[c]}</span><span style={{fontSize:14,fontWeight:500}}>{c}</span></div>)}
+        <button onClick={onClose} style={{width:"100%",marginTop:4,padding:"6px 0",borderRadius:8,fontSize:14,fontWeight:600,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Scanner with flashlight ── */
+function Scanner({onResult,onClose}){
+  const vr=useRef(null),sr=useRef(null),tr=useRef(null);
+  const[err,setErr]=useState(null);
+  const[torch,setTorch]=useState(false);
+  const[torchAvail,setTorchAvail]=useState(false);
+
+  useEffect(()=>{
+    let c=false,iv;
+    (async()=>{
+      try{
+        const constraints={video:{facingMode:"environment",advanced:[{torch:false}]}};
+        const s=await navigator.mediaDevices.getUserMedia(constraints);
+        if(c){s.getTracks().forEach(t=>t.stop());return;}
+        sr.current=s;
+        const track=s.getVideoTracks()[0];
+        tr.current=track;
+        const caps=track.getCapabilities?.();
+        if(caps&&caps.torch) setTorchAvail(true);
+        if(vr.current){vr.current.srcObject=s;vr.current.play();}
+        if("BarcodeDetector" in window){
+          const d=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","qr_code"]});
+          iv=setInterval(async()=>{if(vr.current?.readyState>=2){try{const b=await d.detect(vr.current);if(b.length){clearInterval(iv);onResult(b[0].rawValue);}}catch{}}},500);
+        }else setErr("BarcodeDetector not supported. Use Chrome on Android.");
+      }catch{setErr("Camera access denied.");}
+    })();
+    return()=>{c=true;if(iv)clearInterval(iv);sr.current?.getTracks().forEach(t=>t.stop());};
+  },[]);
+
+  const toggleTorch=async()=>{
+    if(!tr.current)return;
+    try{await tr.current.applyConstraints({advanced:[{torch:!torch}]});setTorch(!torch);}catch{}
+  };
+
+  const cl=()=>{sr.current?.getTracks().forEach(t=>t.stop());onClose();};
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,background:"#000",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+      {err?(
+        <div style={{color:"#fff",textAlign:"center",padding:24}}><p style={{marginBottom:16}}>{err}</p><button onClick={cl} style={{padding:"8px 20px",background:"#fff",color:"#000",borderRadius:8,fontWeight:600,border:"none",cursor:"pointer"}}>Close</button></div>
+      ):(
+        <React.Fragment>
+          <div style={{position:"relative",width:"100%",maxWidth:400,aspectRatio:"4/3"}}>
+            <video ref={vr} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:12}} playsInline muted/>
+            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <div style={{width:"60%",height:"30%",border:"2px solid #4ade80",borderRadius:8,boxShadow:"0 0 0 9999px rgba(0,0,0,0.4)"}}/>
+            </div>
+          </div>
+          <p style={{color:"#fff",marginTop:12,fontSize:12}}>Point camera at barcode</p>
+          <div style={{display:"flex",gap:12,marginTop:12}}>
+            {torchAvail&&(
+              <button onClick={toggleTorch} style={{padding:"8px 20px",background:torch?"#fbbf24":"rgba(255,255,255,0.2)",color:torch?"#000":"#fff",borderRadius:8,fontWeight:600,border:"none",cursor:"pointer",fontSize:14}}>
+                {torch?"🔦 Flash ON":"🔦 Flash OFF"}
+              </button>
+            )}
+            <button onClick={cl} style={{padding:"8px 20px",background:"#fff",color:"#000",borderRadius:8,fontWeight:600,border:"none",cursor:"pointer"}}>Cancel</button>
+          </div>
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
+/* ── Barcode Name Modal ── */
+function BarcodeNameModal({t,barcode,onSave,onCancel}){
+  const[name,setName]=useState("");
+  const[cat,setCat]=useState("Other");
+  const[showCP,setShowCP]=useState(false);
+  if(showCP) return(<CatPick t={t} onSelect={c=>{setCat(c);setShowCP(false);}} onClose={()=>setShowCP(false)}/>);
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}>
+          <h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>📦 Name This Item</h3>
+          <p style={{fontSize:11,textAlign:"center",marginTop:4,color:t.tx2,fontFamily:"monospace"}}>{barcode}</p>
+          <p style={{fontSize:10,textAlign:"center",marginTop:4,color:t.tx2,fontStyle:"italic"}}>Not found — we'll remember it next time.</p>
+        </div>
+        <div style={{padding:12}}>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Item name..." style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none",marginBottom:8}} autoFocus/>
+          <button onClick={()=>setShowCP(true)} style={{width:"100%",padding:"6px 0",borderRadius:8,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4,background:t.bar,color:t.tx}}>{CAT_ICONS[cat]} {cat}</button>
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onCancel} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>{if(name.trim())onSave(name.trim(),cat);}} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Save & Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Loading Overlay ── */
+function LoadingOverlay({t,msg}){
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:60,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:t.card,padding:24,borderRadius:16,textAlign:"center",border:`1px solid ${t.cb}`,boxShadow:t.sh,minWidth:200}}>
+        <div style={{fontSize:32,marginBottom:8}}>🔍</div>
+        <p style={{color:t.tx,fontSize:14,fontWeight:600}}>{msg||"Looking up product..."}</p>
+        <p style={{color:t.tx2,fontSize:11,marginTop:4}}>Please wait</p>
+      </div>
+    </div>
+  );
+}
+
+/* ── ZIP-based grocery tax estimator ── */
+async function estimateGroceryTax(lat,lon){
+  // Step 1: Reverse geocode to get city, state, ZIP
+  const geo=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`);
+  const gd=await geo.json();
+  const addr=gd.address||{};
+  const zip=addr.postcode||"";
+  const city=(addr.city||addr.town||addr.village||addr.county||"").trim();
+  const stRaw=addr["ISO3166-2-lvl4"]||"";
+  const state=stRaw.split("-")[1]||addr.state_code||"";
+
+  // Step 2: Known ZIP / city overrides (expandable)
+  const ZIP_TAX={
+    "85286":7.8,"85224":7.8,"85225":7.8,"85226":7.8, // Chandler AZ
+    "85281":8.1,"85282":8.1,"85283":8.1,"85284":8.1, // Tempe AZ
+    "85201":8.05,"85202":8.05,"85203":8.05,"85204":8.05,"85205":8.05,"85206":8.05,"85207":8.05,"85208":8.05,"85209":8.05,"85210":8.05, // Mesa AZ
+    "85251":8.05,"85253":8.05,"85254":8.05,"85255":8.05,"85257":8.05,"85258":8.05,"85259":8.05,"85260":8.05,"85262":8.05,"85266":8.05, // Scottsdale AZ
+    "85301":9.2,"85302":9.2,"85303":9.2,"85304":9.2,"85305":9.2,"85306":9.2,"85307":9.2,"85308":9.2,"85309":9.2,"85310":9.2, // Glendale AZ
+    "85233":7.8,"85234":7.8,"85295":7.8,"85296":7.8,"85297":7.8,"85298":7.8, // Gilbert AZ
+    "85001":8.6,"85002":8.6,"85003":8.6,"85004":8.6,"85006":8.6,"85007":8.6,"85008":8.6,"85009":8.6,"85012":8.6,"85013":8.6,"85014":8.6,"85015":8.6,"85016":8.6,"85017":8.6,"85018":8.6,"85019":8.6,"85020":8.6,"85021":8.6,"85022":8.6,"85023":8.6,"85024":8.6,"85027":8.6,"85028":8.6,"85029":8.6,"85031":8.6,"85032":8.6,"85033":8.6,"85034":8.6,"85035":8.6,"85037":8.6,"85040":8.6,"85041":8.6,"85042":8.6,"85043":8.6,"85044":8.6,"85045":8.6,"85048":8.6,"85050":8.6,"85051":8.6,"85053":8.6,"85054":8.6, // Phoenix AZ
+    "85701":8.7,"85704":8.7,"85705":8.7,"85706":8.7,"85710":8.7,"85711":8.7,"85712":8.7,"85713":8.7,"85714":8.7,"85715":8.7,"85716":8.7,"85718":8.7,"85719":8.7,"85730":8.7,"85741":8.7,"85742":8.7,"85743":8.7,"85745":8.7,"85746":8.7,"85747":8.7, // Tucson AZ
+    "85345":8.1,"85381":8.1,"85382":8.1,"85383":8.1,"85385":8.1, // Peoria AZ
+    "85374":7.8,"85375":7.8,"85379":7.8, // Surprise AZ
+    "85323":8.8,"85392":8.8, // Avondale AZ
+    "85338":8.3,"85395":8.3, // Goodyear AZ
+    "86001":9.18,"86004":9.18,"86005":9.18, // Flagstaff AZ
+    "85364":9.7,"85365":9.7,"85367":9.7, // Yuma AZ
+    // Major cities other states
+    "90001":9.5,"90012":9.5,"90024":9.5,"90210":9.5, // LA CA (exempt groceries)
+    "10001":8.875,"10002":8.875,"10036":8.875, // NYC NY (exempt)
+    "60601":10.25,"60611":10.25,"60614":10.25, // Chicago IL (exempt)
+    "77001":8.25,"77002":8.25,"77003":8.25, // Houston TX (exempt)
+    "33101":7.0,"33125":7.0,"33130":7.0, // Miami FL (exempt)
+    "30301":8.9,"30303":8.9,"30309":8.9, // Atlanta GA
+    "37201":9.25,"37203":9.25,"37205":9.25, // Nashville TN
+    "70112":9.45,"70113":9.45,"70115":9.45, // New Orleans LA
+  };
+
+  // Step 3: Grocery-exempt states (0%)
+  const EXEMPT_STATES=["CA","CT","DE","FL","IA","IL","IN","KY","MA","MD","ME","MI","MN","MT","NH","NJ","NY","OH","OR","PA","RI","TX","VT","VA","WA","WI","WV","AK"];
+
+  // Step 4: Reduced-rate states and their grocery-specific rate
+  const REDUCED={
+    "VA":2.5,"UT":3.0,"MO":1.225,"GA":0, // GA counties vary, base 0 state
+    "SD":4.2,"WY":4.0,"AL":4.0,"HI":4.0
+  };
+
+  let rate=null;
+  let source="estimate";
+  let note="";
+
+  if(EXEMPT_STATES.includes(state)){
+    rate=0;note="Groceries are exempt from sales tax in this state.";source="exempt";
+  } else if(ZIP_TAX[zip]!==undefined){
+    rate=ZIP_TAX[zip];note=`Rate for ZIP ${zip} (${city}, ${state}). Includes state + county + city taxes.`;source="zip";
+  } else if(REDUCED[state]!==undefined){
+    rate=REDUCED[state];note=`${state} applies a reduced grocery rate of ${REDUCED[state]}%. Local taxes may apply.`;source="reduced";
+  } else {
+    rate=GROCERY_TAX[state]||0;
+    note=`State-level estimate for ${state}. Actual rate may vary by city/county.`;source="state";
+  }
+
+  return{rate,state,city,zip,note,source};
+}
+
+/* ── Tax / Location Picker ── */
+function TaxPick({t,state,rate,onSave,onClose}){
+  const[st,setSt]=useState(state);
+  const[rt,setRt]=useState(rate);
+  const[detecting,setDetecting]=useState(false);
+  const[detResult,setDetResult]=useState(null);
+  const[detErr,setDetErr]=useState("");
+  const[manualRate,setManualRate]=useState(String(rate||""));
+  const[showPad,setShowPad]=useState(false);
+
+  const detect=async()=>{
+    setDetecting(true);setDetErr("");setDetResult(null);
+    try{
+      const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000}));
+      const result=await estimateGroceryTax(pos.coords.latitude,pos.coords.longitude);
+      setDetResult(result);
+      setSt(result.state||st);
+      setRt(result.rate);
+      setManualRate(String(result.rate));
+    }catch(e){setDetErr("Location unavailable. Please select your state manually.");}
+    setDetecting(false);
+  };
+
+  const handleStateChange=e=>{
+    const s=e.target.value;setSt(s);
+    const r=EXEMPT_STATES_SET.has(s)?0:(GROCERY_TAX[s]||0);
+    setRt(r);setManualRate(String(r));setDetResult(null);
+  };
+
+  const EXEMPT_STATES_SET=new Set(["CA","CT","DE","FL","IA","IL","IN","KY","MA","MD","ME","MI","MN","MT","NH","NJ","NY","OH","OR","PA","RI","TX","VT","VA","WA","WI","WV","AK"]);
+
+  if(showPad) return(<Pad t={t} label="Enter grocery tax rate (%)" value={manualRate} onChange={setManualRate} onDone={()=>{setRt(parseFloat(manualRate)||0);setShowPad(false);}} onCancel={()=>setShowPad(false)}/>);
+
+  const is={width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none"};
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:380,maxHeight:"90vh",overflowY:"auto",borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}><h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>📍 Grocery Tax Location</h3></div>
+        <div style={{padding:12}}>
+          {/* Auto-detect button */}
+          <button onClick={detect} disabled={detecting} style={{width:"100%",padding:"12px 0",borderRadius:10,fontSize:13,fontWeight:600,border:"none",cursor:detecting?"not-allowed":"pointer",background:t.ac,color:t.act,marginBottom:10,opacity:detecting?0.7:1}}>
+            {detecting?"⏳ Detecting location & tax rate...":"📡 Auto-Detect My Location"}
+          </button>
+
+          {/* Detection result */}
+          {detResult&&(
+            <div style={{borderRadius:10,padding:10,marginBottom:10,background:t.bar,border:`1px solid ${t.cb}`}}>
+              <p style={{fontSize:12,fontWeight:700,color:t.ac,marginBottom:4}}>📍 {detResult.city}{detResult.city?", ":""}{detResult.state} {detResult.zip}</p>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:11,color:t.tx2}}>Estimated grocery tax</span>
+                <span style={{fontSize:20,fontWeight:700,color:t.ac}}>{detResult.rate===0?"Exempt":`${detResult.rate}%`}</span>
+              </div>
+              <p style={{fontSize:10,color:t.tx2,lineHeight:1.4}}>{detResult.note}</p>
+              <div style={{marginTop:6,padding:"6px 8px",borderRadius:6,background:`${t.ac}15`,border:`1px solid ${t.ac}30`}}>
+                <p style={{fontSize:10,color:t.ac}}>⚠️ Estimate only. Actual tax may vary by store, item type, and current local tax rules.</p>
+              </div>
+            </div>
+          )}
+
+          {detErr&&<p style={{fontSize:12,color:"#ef4444",textAlign:"center",marginBottom:8}}>{detErr}</p>}
+
+          {/* Divider */}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <div style={{flex:1,height:1,background:t.cb}}/><span style={{fontSize:11,color:t.tx2}}>or select manually</span><div style={{flex:1,height:1,background:t.cb}}/>
+          </div>
+
+          {/* State selector */}
+          <label style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,color:t.tx2,display:"block",marginBottom:4}}>State</label>
+          <select value={st} onChange={handleStateChange} style={{...is,marginBottom:10}}>
+            {STATES.map(s=><option key={s} value={s}>{STATE_NAMES[s]||s} — {EXEMPT_STATES_SET.has(s)?"Grocery Exempt":`${GROCERY_TAX[s]||0}%`}</option>)}
+          </select>
+
+          {/* Manual rate override */}
+          <label style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,color:t.tx2,display:"block",marginBottom:4}}>Grocery Tax Rate (%)</label>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+            <div onClick={()=>setShowPad(true)} style={{flex:1,padding:"8px 12px",borderRadius:8,border:`1px solid ${t.inb}`,background:t.inp,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontSize:14,color:t.tx2,fontSize:12}}>Tap to override</span>
+              <span style={{fontSize:16,fontWeight:700,color:t.ac}}>{parseFloat(manualRate)===0?"Exempt":`${manualRate}%`}</span>
+            </div>
+          </div>
+          <p style={{fontSize:10,color:t.tx2,textAlign:"center"}}>⚠️ Tax estimate only. May vary by store, item type & local rules.</p>
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>onSave(st,parseFloat(manualRate)||rt||0)} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Use {parseFloat(manualRate)||rt||0}%</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Complete Trip Modal ── */
+function TripModal({t,items,tst,trate,onDone,onClose}){
+  const[store,setStore]=useState("");
+  const sub=items.reduce((s,i)=>s+i.price,0),tx=sub*trate/100;
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}><h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>✅ Complete Trip</h3></div>
+        <div style={{padding:12}}>
+          <input value={store} onChange={e=>setStore(e.target.value)} placeholder="Store name (optional)" style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none",marginBottom:12}}/>
+          <div style={{borderRadius:12,padding:10,background:t.bar}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,color:t.tx2}}><span>{items.length} items</span><span>${sub.toFixed(2)}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,color:t.tx2}}><span>Tax ({trate===0?"Exempt":`${trate}%`})</span><span>${tx.toFixed(2)}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,paddingTop:6,marginTop:6,borderTop:`1px solid ${t.cb}`,color:t.ac}}><span>Total</span><span>${(sub+tx).toFixed(2)}</span></div>
+          </div>
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>onDone(store.trim())} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Save Trip</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Edit Trip Name Modal ── */
+function EditTripModal({t,trip,onSave,onClose}){
+  const[name,setName]=useState(trip.store||"");
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}><h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>✏️ Edit Trip Name</h3></div>
+        <div style={{padding:12}}>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Store / trip name..." style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none"}} autoFocus/>
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>onSave(name.trim())} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Receipt Scanner Modal ── */
+function ReceiptScanner({t,onCapture,onClose}){
+  const[step,setStep]=useState("idle");
+  const[preview,setPreview]=useState(null);
+  const[total,setTotal]=useState("");
+  const[date,setDate]=useState(new Date().toISOString().split("T")[0]);
+  const[store,setStore]=useState("");
+  const[parsing,setParsing]=useState(false);
+  const[padField,setPadField]=useState(null);
+  const fileRef=useRef(null);
+
+  const handleFile=async(e)=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    const url=URL.createObjectURL(file);
+    setPreview(url);
+    setParsing(true);
+    setStep("confirm");
+    // Try to extract text from receipt using basic OCR heuristics
+    try{
+      const img=new Image();
+      img.src=url;
+      await new Promise(r=>img.onload=r);
+      const canvas=document.createElement("canvas");
+      canvas.width=img.width;canvas.height=img.height;
+      const ctx=canvas.getContext("2d");
+      ctx.drawImage(img,0,0);
+      // We can't do full OCR without a library, so prompt user to fill in
+      setParsing(false);
+    }catch{setParsing(false);}
+  };
+
+  if(padField==="total") return(<Pad t={t} label="Receipt Total (including tax)" value={total} onChange={setTotal} onDone={()=>setPadField(null)} onCancel={()=>setPadField(null)}/>);
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,maxHeight:"90vh",overflowY:"auto",borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}><h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>🧾 Scan Receipt</h3></div>
+        <div style={{padding:12}}>
+          {!preview?(
+            <div>
+              <div onClick={()=>fileRef.current?.click()} style={{padding:"32px 0",borderRadius:12,border:`2px dashed ${t.cb}`,display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",marginBottom:8}}>
+                <span style={{fontSize:40}}>📸</span>
+                <span style={{fontSize:13,fontWeight:600,color:t.tx,marginTop:8}}>Tap to take or upload photo</span>
+                <span style={{fontSize:11,color:t.tx2,marginTop:4}}>of your grocery receipt</span>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{display:"none"}}/>
+            </div>
+          ):(
+            <div>
+              <img src={preview} style={{width:"100%",borderRadius:8,marginBottom:12}}/>
+              {parsing&&<p style={{textAlign:"center",color:t.ac,fontSize:12,marginBottom:8}}>⏳ Reading receipt...</p>}
+              <p style={{fontSize:11,color:t.tx2,marginBottom:8}}>Please confirm or fill in the details below:</p>
+              <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>STORE NAME</label>
+              <input value={store} onChange={e=>setStore(e.target.value)} placeholder="Store name (optional)" style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none",marginBottom:10}}/>
+              <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>RECEIPT TOTAL (incl. tax)</label>
+              <div onClick={()=>setPadField("total")} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderRadius:8,border:`1px solid ${t.inb}`,background:t.inp,cursor:"pointer",marginBottom:10}}>
+                <span style={{fontSize:14,color:total?t.tx:t.tx2}}>{total?`$${total}`:"Tap to enter total"}</span>
+                <span style={{fontSize:18,fontWeight:700,color:t.ac}}>{total?`$${parseFloat(total).toFixed(2)}`:""}</span>
+              </div>
+              <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>PURCHASE DATE</label>
+              <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none"}}/>
+            </div>
+          )}
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          {preview&&<button onClick={()=>{if(!total)return alert("Please enter the receipt total.");onCapture({store:store.trim(),total:parseFloat(total)||0,date:date||new Date().toISOString().split("T")[0]});}} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Add to Budget</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Budget Modal ── */
+function BudgetModal({t,totalBudget,period,onSave,onClose}){
+  const[tb,setTb]=useState(totalBudget||0);
+  const[per,setPer]=useState(period||"monthly");
+  const[ek,setEk]=useState(false);
+  const[val,setVal]=useState("");
+  if(ek) return(<Pad t={t} label={`${per==="monthly"?"Monthly":"Weekly"} Budget`} value={val} onChange={setVal} onDone={()=>{setTb(parseFloat(val)||0);setEk(false);setVal("");}} onCancel={()=>{setEk(false);setVal("");}}/>);
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}><h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>🎯 Set Budget</h3></div>
+        <div style={{padding:12}}>
+          <div style={{display:"flex",marginBottom:12,borderRadius:8,padding:2,background:t.bar}}>
+            <button onClick={()=>setPer("weekly")} style={{flex:1,padding:"8px 0",borderRadius:6,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",background:per==="weekly"?t.ac:"transparent",color:per==="weekly"?t.act:t.tx2}}>Weekly</button>
+            <button onClick={()=>setPer("monthly")} style={{flex:1,padding:"8px 0",borderRadius:6,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",background:per==="monthly"?t.ac:"transparent",color:per==="monthly"?t.act:t.tx2}}>Monthly</button>
+          </div>
+          <div onClick={()=>{setEk(true);setVal(tb>0?String(tb):"");}} style={{padding:"32px 0",borderRadius:12,border:`2px dashed ${t.cb}`,display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer"}}>
+            <span style={{fontSize:28,fontWeight:700,color:t.ac}}>${tb>0?tb.toFixed(0):"0"}</span>
+            <span style={{fontSize:11,marginTop:6,color:t.tx2}}>Tap to set {per} budget</span>
+          </div>
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>onSave(tb,per)} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Theme Picker ── */
+function ThemePick({t,current,onSelect,onClose}){
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:400,borderRadius:"16px 16px 0 0",padding:16,paddingBottom:24,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <h3 style={{fontWeight:700,textAlign:"center",fontSize:14,marginBottom:12,color:t.tx}}>Choose Theme</h3>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {Object.entries(THEMES).map(([id,th])=><div key={id} onClick={()=>onSelect(id)} style={{borderRadius:12,padding:12,cursor:"pointer",display:"flex",alignItems:"center",gap:10,background:th.bg,border:current===id?`2px solid ${th.ac}`:"2px solid transparent"}}>
+            <span style={{fontSize:20}}>{th.icon}</span><div><p style={{fontSize:14,fontWeight:700,color:th.tx}}>{th.name}</p><div style={{display:"flex",gap:4,marginTop:4}}><div style={{width:12,height:12,borderRadius:"50%",background:th.ac}}/><div style={{width:12,height:12,borderRadius:"50%",background:th.acd}}/></div></div>
+          </div>)}
+        </div>
+        <button onClick={onClose} style={{width:"100%",marginTop:12,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Budget helpers ── */
+function getMonthBounds(){
+  const now=new Date();
+  const start=new Date(now.getFullYear(),now.getMonth(),1);
+  const end=new Date(now.getFullYear(),now.getMonth()+1,0);
+  return{start,end,daysInMonth:end.getDate()};
+}
+function getWeeksInMonth(){
+  const{daysInMonth}=getMonthBounds();
+  return daysInMonth/7;
+}
+function dayOfMonth(){return new Date().getDate();}
+function daysRemaining(){const{end}=getMonthBounds();return Math.max(0,(end-new Date())/(1000*60*60*24));}
+function weeksRemaining(){return daysRemaining()/7;}
+
+/* ── Spending View ── */
+function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
+  const[period,setPeriod]=useState("monthly");
+  const[showBM,setShowBM]=useState(false);
+  const[showRS,setShowRS]=useState(false);
+  const[editTrip,setEditTrip]=useState(null);
+  const now=new Date();
+  const PL=["weekly","monthly","annual"];
+
+  const filtered=useMemo(()=>trips.filter(tr=>{
+    const d=new Date(tr.date);
+    if(period==="weekly"){const w=new Date(now);w.setDate(w.getDate()-7);return d>=w;}
+    if(period==="monthly") return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
+    return d.getFullYear()===now.getFullYear();
+  }),[trips,period]);
+
+  const gt=filtered.reduce((s,tr)=>s+tr.total,0);
+  const pl=period==="weekly"?"This Week":period==="monthly"?"This Month":"This Year";
+
+  // Budget calculations
+  const{daysInMonth}=getMonthBounds();
+  const weeksInMonth=daysInMonth/7;
+  const monthBudget=budgetPeriod==="weekly"?totalBudget*weeksInMonth:totalBudget;
+  const weekBudget=budgetPeriod==="monthly"?totalBudget/weeksInMonth:totalBudget;
+
+  // Month-to-date spending
+  const monthSpent=useMemo(()=>trips.filter(tr=>{const d=new Date(tr.date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();}).reduce((s,tr)=>s+tr.total,0),[trips]);
+  const remaining=Math.max(0,monthBudget-monthSpent);
+  const over=monthSpent>monthBudget;
+
+  // Remaining weeks in month
+  const wkRem=weeksRemaining();
+  // Rollover: if spent less than expected so far, add surplus to remaining
+  const daysPassed=dayOfMonth();
+  const expectedSoFar=monthBudget*(daysPassed/daysInMonth);
+  const surplus=Math.max(0,expectedSoFar-monthSpent);
+  const weeklyAvailRemaining=wkRem>0?(remaining+surplus)/wkRem:0;
+
+  const pct=monthBudget>0?Math.min((monthSpent/monthBudget)*100,100):0;
+
+  const handleReceiptCapture=({store,total,date})=>{
+    const trip={date:new Date(date).toISOString(),store:store||"Receipt Scan",items:[],subtotal:total,tax:0,total,fromReceipt:true};
+    const upd=[...trips,trip];
+    setTrips(upd);
+    LS.set("g_trips",upd);
+    setShowRS(false);
+  };
+
+  const handleEditTrip=(idx,newName)=>{
+    const upd=trips.map((tr,i)=>i===idx?{...tr,store:newName}:tr);
+    setTrips(upd);
+    LS.set("g_trips",upd);
+    setEditTrip(null);
+  };
+
+  return(
+    <div style={{paddingBottom:32}}>
+      {showBM&&<BudgetModal t={t} totalBudget={totalBudget} period={budgetPeriod} onSave={(tb,per)=>{onSetBudget(tb,per);setShowBM(false);}} onClose={()=>setShowBM(false)}/>}
+      {showRS&&<ReceiptScanner t={t} onCapture={handleReceiptCapture} onClose={()=>setShowRS(false)}/>}
+      {editTrip!==null&&<EditTripModal t={t} trip={trips[editTrip]} onSave={name=>handleEditTrip(editTrip,name)} onClose={()=>setEditTrip(null)}/>}
+
+      {/* Period Toggle */}
+      <div style={{margin:"12px 12px 0",display:"flex",borderRadius:8,padding:2,background:t.bar}}>
+        {PL.map(p=><button key={p} onClick={()=>setPeriod(p)} style={{flex:1,padding:"6px 0",borderRadius:6,fontSize:12,fontWeight:600,textTransform:"capitalize",border:"none",cursor:"pointer",background:period===p?t.ac:"transparent",color:period===p?t.act:t.tx2}}>{p}</button>)}
+      </div>
+
+      {/* Summary Card */}
+      <div style={{margin:"12px 12px 0",borderRadius:12,padding:12,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.gl}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+          <span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",color:t.tx2}}>{pl}</span>
+          <span style={{fontSize:11,color:t.tx2}}>{filtered.length} trip{filtered.length!==1?"s":""}</span>
+        </div>
+        <p style={{fontSize:24,fontWeight:700,color:t.ac,marginBottom:2}}>${gt.toFixed(2)}</p>
+        <p style={{fontSize:11,color:t.tx2}}>spent this {period==="annual"?"year":period.replace("ly","")}</p>
+      </div>
+
+      {/* Budget Summary */}
+      {totalBudget>0&&period==="monthly"&&(
+        <div style={{margin:"8px 12px 0",borderRadius:12,padding:12,background:t.card,border:`1px solid ${t.cb}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <span style={{fontSize:12,fontWeight:600,color:t.tx}}>Monthly Budget</span>
+            <span style={{fontSize:14,fontWeight:700,color:t.ac}}>${monthBudget.toFixed(0)}</span>
+          </div>
+          <div style={{height:10,borderRadius:5,overflow:"hidden",background:t.bar,marginBottom:6}}>
+            <div style={{height:"100%",borderRadius:5,width:`${pct}%`,background:over?"#ef4444":t.ac,transition:"width 0.4s"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:10}}>
+            <span style={{color:over?"#ef4444":t.tx2}}>{over?`$${(monthSpent-monthBudget).toFixed(2)} over budget`:`$${remaining.toFixed(2)} remaining`}</span>
+            <span style={{color:t.tx2}}>spent ${monthSpent.toFixed(2)}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div style={{background:t.bar,borderRadius:8,padding:8,textAlign:"center"}}>
+              <p style={{fontSize:10,color:t.tx2,marginBottom:2}}>Avg week budget</p>
+              <p style={{fontSize:16,fontWeight:700,color:t.ac}}>${weekBudget.toFixed(2)}</p>
+              <p style={{fontSize:9,color:t.tx2}}>{weeksInMonth.toFixed(1)} wks/mo</p>
+            </div>
+            <div style={{background:t.bar,borderRadius:8,padding:8,textAlign:"center"}}>
+              <p style={{fontSize:10,color:t.tx2,marginBottom:2}}>Avail/wk remaining</p>
+              <p style={{fontSize:16,fontWeight:700,color:weeklyAvailRemaining<weekBudget*0.5?"#ef4444":t.ac}}>${weeklyAvailRemaining.toFixed(2)}</p>
+              <p style={{fontSize:9,color:t.tx2}}>{wkRem.toFixed(1)} wks left{surplus>0?` +$${surplus.toFixed(0)} surplus`:""}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div style={{margin:"8px 12px 0",display:"flex",gap:8}}>
+        <button onClick={()=>setShowBM(true)} style={{flex:1,padding:"8px 0",borderRadius:8,border:`2px dashed ${t.cb}`,fontSize:12,fontWeight:500,background:"transparent",color:t.tx2,cursor:"pointer"}}>🎯 {totalBudget>0?"Edit Budget":"Set Budget"}</button>
+        <button onClick={()=>setShowRS(true)} style={{flex:1,padding:"8px 0",borderRadius:8,border:`2px dashed ${t.cb}`,fontSize:12,fontWeight:500,background:"transparent",color:t.tx2,cursor:"pointer"}}>🧾 Scan Receipt</button>
+      </div>
+
+      {/* Recent Trips */}
+      {filtered.length>0&&(
+        <div style={{margin:"12px 12px 0"}}>
+          <h3 style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8,color:t.tx2}}>Recent Trips</h3>
+          {filtered.slice().reverse().slice(0,20).map((tr,i)=>{
+            const origIdx=trips.length-1-i;
+            return(
+              <div key={i} style={{borderRadius:12,padding:10,marginBottom:6,display:"flex",alignItems:"center",justifyContent:"space-between",background:t.card,border:`1px solid ${t.cb}`}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <p style={{fontSize:14,fontWeight:600,color:t.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tr.store||"Grocery Trip"}{tr.fromReceipt?" 🧾":""}</p>
+                  <p style={{fontSize:11,color:t.tx2}}>{new Date(tr.date).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})} · {tr.items.length>0?`${tr.items.length} items`:"receipt"}</p>
+                </div>
+                <span style={{fontSize:14,fontWeight:700,color:t.ac,marginRight:8}}>${tr.total.toFixed(2)}</span>
+                <button onClick={()=>setEditTrip(trips.length-1-filtered.slice().reverse().indexOf(filtered.slice().reverse()[i]))} style={{fontSize:12,padding:"4px 8px",borderRadius:6,border:`1px solid ${t.cb}`,background:t.bar,color:t.tx2,cursor:"pointer",flexShrink:0}}>✏️</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Main App ── */
+function App(){
+  const[tid,setTid]=useState(()=>LS.get("g_theme")||"mint");
+  const[tab,setTab]=useState("list");
+  const[items,setItems]=useState([]);
+  const[tst,setTst]=useState(()=>LS.get("g_loc_st")||"AZ");
+  const[trate,setTrate]=useState(()=>LS.get("g_loc_rt")??8.37);
+  const[trips,setTrips]=useState(()=>LS.get("g_trips")||[]);
+  const bgt=LS.get("g_bgt")||{};
+  const[totalBudget,setTotalBudget]=useState(()=>bgt.tb||0);
+  const[budgetPeriod,setBudgetPeriod]=useState(()=>bgt.per||"monthly");
+  const[icm,setIcm]=useState(()=>LS.get("g_icm")||{});
+  const[bcDB,setBcDB]=useState(()=>LS.get("g_bcdb")||{});
+  const[pendingBC,setPendingBC]=useState(null);
+  const[scanLoading,setScanLoading]=useState(false);
+  const[showTax,setShowTax]=useState(false);
+  const[showAdd,setShowAdd]=useState(false);
+  const[showScan,setShowScan]=useState(false);
+  const[showTrip,setShowTrip]=useState(false);
+  const[showTheme,setShowTheme]=useState(false);
+  const[nn,setNn]=useState("");
+  const[nc,setNc]=useState("Other");
+  const[showCP,setShowCP]=useState(null);
+  const[col,setCol]=useState({});
+  const[ecf,setEcf]=useState(null);
+  const[chk,setChk]=useState(new Set());
+  const[pei,setPei]=useState(null);
+  const idR=useRef(1);
+  const t=THEMES[tid]||THEMES.mint;
+
+  const sThm=id=>{setTid(id);LS.set("g_theme",id);};
+  const sIcm=m=>{setIcm(m);LS.set("g_icm",m);};
+  const saveBcDB=db=>{setBcDB(db);LS.set("g_bcdb",db);};
+
+  const hTax=(st,rt)=>{setTst(st);setTrate(rt);LS.set("g_loc_st",st);LS.set("g_loc_rt",rt);};
+  const hGoals=(tb,per)=>{setTotalBudget(tb);setBudgetPeriod(per);LS.set("g_bgt",{tb,per});};
+
+  const addItem=(name,cat="Other",openPad=false)=>{
+    const id=idR.current++;
+    const key=name.trim().toLowerCase();
+    const rc=icm[key]||cat;
+    const item={id,name,category:rc,price:0,pm:"fixed",up:0,wt:0,wu:"lb"};
+    setItems(p=>[...p,item]);
+    setNn("");setNc("Other");setShowAdd(false);
+    if(openPad)setPei(item);
+  };
+
+  const hScan=async code=>{
+    setShowScan(false);
+    if(bcDB[code]){const e=bcDB[code];addItem(e.name,e.category||"Other",true);return;}
+    setScanLoading(true);
+    try{
+      const ctrl=new AbortController();
+      const to=setTimeout(()=>ctrl.abort(),8000);
+      const res=await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`,{signal:ctrl.signal});
+      clearTimeout(to);
+      const data=await res.json();
+      if(data.status===1&&data.product){
+        const raw=data.product.product_name||data.product.product_name_en||data.product.generic_name||"";
+        const name=raw.trim();
+        if(name){
+          const cats=(data.product.categories_tags||[]).join(" ").toLowerCase();
+          let cat="Other";
+          if(cats.includes("dairy")||cats.includes("milk")||cats.includes("cheese")||cats.includes("yogurt"))cat="Dairy";
+          else if(cats.includes("fresh-food")||cats.includes("fruits")||cats.includes("vegetables"))cat="Produce";
+          else if(cats.includes("meat")||cats.includes("seafood")||cats.includes("fish")||cats.includes("poultry"))cat="Meat & Seafood";
+          else if(cats.includes("frozen"))cat="Frozen";
+          else if(cats.includes("bread")||cats.includes("baker")||cats.includes("pastr"))cat="Bakery";
+          else if(cats.includes("beverage")||cats.includes("drink")||cats.includes("water")||cats.includes("soda")||cats.includes("juice"))cat="Beverages";
+          else if(cats.includes("snack")||cats.includes("chip")||cats.includes("cookie")||cats.includes("candy"))cat="Snacks";
+          else if(cats.includes("canned")||cats.includes("pasta")||cats.includes("rice")||cats.includes("cereal")||cats.includes("sauce"))cat="Pantry";
+          else if(cats.includes("cleaning")||cats.includes("household"))cat="Household";
+          saveBcDB({...bcDB,[code]:{name,category:cat}});
+          setScanLoading(false);
+          addItem(name,cat,true);
+          return;
+        }
+      }
+    }catch(err){}
+    setScanLoading(false);
+    setPendingBC(code);
+  };
+
+  const hPendingSave=(name,cat)=>{saveBcDB({...bcDB,[pendingBC]:{name,category:cat}});addItem(name,cat,true);setPendingBC(null);};
+  const rmItem=id=>setItems(p=>p.filter(i=>i.id!==id));
+  const togChk=id=>setChk(p=>{const s=new Set(p);s.has(id)?s.delete(id):s.add(id);return s;});
+  const hPrice=data=>{const id=pei.id;setItems(p=>p.map(i=>i.id===id?{...i,...data}:i));setPei(null);};
+
+  const hComplete=store=>{
+    const sub=items.reduce((s,i)=>s+i.price,0);
+    const tx=sub*trate/100;
+    const trip={date:new Date().toISOString(),store,items:items.map(i=>({name:i.name,category:i.category,price:i.price})),subtotal:sub,tax:tx,total:sub+tx,location:tst};
+    const upd=[...trips,trip];
+    setTrips(upd);LS.set("g_trips",upd);
+    const mem={...icm};items.forEach(i=>{mem[i.name.trim().toLowerCase()]=i.category;});sIcm(mem);
+    setItems([]);setChk(new Set());setShowTrip(false);setTab("spending");
+  };
+
+  const grouped={};items.forEach(i=>{if(!grouped[i.category])grouped[i.category]=[];grouped[i.category].push(i);});
+  const sub=items.reduce((s,i)=>s+i.price,0);
+  const tax=sub*trate/100;
+  const tot=sub+tax;
+  const bs={border:"none",cursor:"pointer",fontWeight:600};
+
+  return(
+    <div style={{minHeight:"100vh",background:t.bg,fontFamily:"'Inter',system-ui,sans-serif"}}>
+      {/* Header */}
+      <div style={{padding:"12px",display:"flex",alignItems:"center",justifyContent:"space-between",background:t.hd}}>
+        <h1 style={{fontSize:16,fontWeight:700,color:"#fff",letterSpacing:"-0.3px"}}>🛒 Grocery Expense Tracker</h1>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setShowTheme(true)} style={{...bs,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,background:"rgba(255,255,255,0.15)",color:"#fff"}}>🎨</button>
+          {tab==="list"&&items.length>0&&<button onClick={()=>setShowTrip(true)} style={{...bs,padding:"6px 12px",borderRadius:8,fontSize:12,background:"rgba(255,255,255,0.95)",color:t.acd}}>✅ Done</button>}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",background:t.tab,borderBottom:`1px solid ${t.cb}`}}>
+        <button onClick={()=>setTab("list")} style={{...bs,flex:1,padding:"10px 0",fontSize:12,textAlign:"center",background:"transparent",borderBottom:`2px solid ${tab==="list"?t.ac:"transparent"}`,color:tab==="list"?t.ac:t.tx2}}>🛒 List</button>
+        <button onClick={()=>setTab("spending")} style={{...bs,flex:1,padding:"10px 0",fontSize:12,textAlign:"center",background:"transparent",borderBottom:`2px solid ${tab==="spending"?t.ac:"transparent"}`,color:tab==="spending"?t.ac:t.tx2}}>📊 Spending</button>
+      </div>
+
+      {tab==="list"?(
+        <div style={{paddingBottom:144}}>
+          {/* Tax */}
+          <div onClick={()=>setShowTax(true)} style={{margin:"12px 12px 0",padding:10,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+            <div><span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,color:t.tx2}}>Grocery Tax</span><p style={{fontSize:14,fontWeight:700,marginTop:2,color:t.tx}}>📍 {STATE_NAMES[tst]||tst}</p></div>
+            <div style={{textAlign:"right"}}><span style={{fontSize:11,color:t.tx2}}>{trate===0?"Exempt":"Rate"}</span><p style={{fontSize:18,fontWeight:700,color:t.ac}}>{trate===0?"0%":`${trate}%`}</p></div>
+          </div>
+
+          {/* Add / Scan */}
+          <div style={{margin:"8px 12px 0",display:"flex",gap:8}}>
+            <button onClick={()=>setShowAdd(true)} style={{...bs,flex:1,padding:"10px 0",borderRadius:12,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:t.ac,color:t.act}}>+ Add</button>
+            <button onClick={()=>setShowScan(true)} style={{...bs,flex:1,padding:"10px 0",borderRadius:12,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:t.acd,color:"#fff"}}>📷 Scan</button>
+          </div>
+
+          {/* Add Form */}
+          {showAdd&&(
+            <div style={{margin:"8px 12px 0",padding:12,borderRadius:12,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+              <input value={nn} onChange={e=>setNn(e.target.value)} placeholder="Item name..." style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none",marginBottom:8}} autoFocus/>
+              <button onClick={()=>setShowCP("new")} style={{...bs,width:"100%",padding:"6px 0",borderRadius:8,fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",gap:4,marginBottom:8,background:t.bar,color:t.tx}}>{CAT_ICONS[nc]} {nc}</button>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setShowAdd(false)} style={{...bs,flex:1,padding:"8px 0",borderRadius:8,fontSize:12,background:t.bar,color:t.tx2}}>Cancel</button>
+                <button onClick={()=>{if(nn.trim())addItem(nn.trim(),nc);}} style={{...bs,flex:1,padding:"8px 0",borderRadius:8,fontSize:12,background:t.ac,color:t.act}}>Add to List</button>
+              </div>
+            </div>
+          )}
+
+          {/* Items */}
+          <div style={{margin:"12px 12px 0"}}>
+            {items.length===0&&<div style={{textAlign:"center",padding:"48px 0"}}><p style={{fontSize:40,marginBottom:8}}>🛒</p><p style={{fontSize:14,fontWeight:500,color:t.tx2}}>Your list is empty</p></div>}
+            {CATEGORIES.filter(c=>grouped[c]).map(cat=>(
+              <div key={cat} style={{marginBottom:8}}>
+                <div onClick={()=>setCol(p=>({...p,[cat]:!p[cat]}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:"8px 8px 0 0",padding:"8px 12px",cursor:"pointer",userSelect:"none",background:t.card,border:`1px solid ${t.cb}`,borderBottom:"none"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:14}}>{CAT_ICONS[cat]}</span><span style={{fontSize:12,fontWeight:700,color:t.tx}}>{cat}</span><span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{grouped[cat].length}</span></div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:12,fontWeight:700,color:t.ac}}>${grouped[cat].reduce((s,i)=>s+i.price,0).toFixed(2)}</span><span style={{fontSize:11,color:t.tx2}}>{col[cat]?"▸":"▾"}</span></div>
+                </div>
+                {!col[cat]&&grouped[cat].map(item=>(
+                  <div key={item.id} style={{display:"flex",alignItems:"center",padding:"8px 12px",background:t.card,borderLeft:`1px solid ${t.cb}`,borderRight:`1px solid ${t.cb}`,borderBottom:`1px solid ${t.cb}`,opacity:chk.has(item.id)?0.45:1}}>
+                    <div onClick={()=>togChk(item.id)} style={{marginRight:8,cursor:"pointer"}}><div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${chk.has(item.id)?t.ac:t.inb}`,background:chk.has(item.id)?t.ac:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:t.act}}>{chk.has(item.id)?"✓":""}</div></div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <p style={{fontSize:12,fontWeight:500,color:t.tx,textDecoration:chk.has(item.id)?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</p>
+                      {item.pm==="weight"&&item.up>0&&<p style={{fontSize:11,color:t.tx2}}>~{item.wt} {item.wu} @ ${item.up}/{item.wu}</p>}
+                    </div>
+                    <button onClick={()=>setPei(item)} style={{...bs,fontSize:12,fontWeight:700,marginRight:8,padding:"2px 6px",borderRadius:4,background:"transparent",color:item.price>0?t.ac:t.tx2}}>{item.price>0?`$${item.price.toFixed(2)}`:"$0.00"}</button>
+                    <button onClick={()=>setEcf(item.id)} style={{...bs,fontSize:14,marginRight:4,background:"transparent"}}>{CAT_ICONS[item.category]}</button>
+                    <button onClick={()=>rmItem(item.id)} style={{...bs,fontSize:16,background:"transparent",color:"#ef4444"}}>×</button>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          {items.length>0&&(
+            <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:10,padding:12,background:t.card,borderTop:`1px solid ${t.cb}`,boxShadow:"0 -4px 20px rgba(0,0,0,0.15)",backdropFilter:"blur(20px)"}}>
+              <div style={{maxWidth:400,margin:"0 auto"}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:2,color:t.tx2}}><span>Subtotal ({items.length})</span><span>${sub.toFixed(2)}</span></div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6,color:t.tx2}}><span>Tax ({trate===0?"Exempt":`${trate}%`})</span><span>${tax.toFixed(2)}</span></div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:18,fontWeight:700,paddingTop:6,borderTop:`1px solid ${t.cb}`,color:t.ac}}><span>Total</span><span>${tot.toFixed(2)}</span></div>
+              </div>
+            </div>
+          )}
+        </div>
+      ):(
+        <SpendingView t={t} trips={trips} setTrips={setTrips} totalBudget={totalBudget} budgetPeriod={budgetPeriod} onSetBudget={hGoals}/>
+      )}
+
+      {/* Modals */}
+      {scanLoading&&<LoadingOverlay t={t} msg="Looking up product..."/>}
+      {pei&&<PriceModal t={t} item={pei} onSave={hPrice} onCancel={()=>setPei(null)}/>}
+      {showCP==="new"&&<CatPick t={t} onSelect={c=>{setNc(c);setShowCP(null);}} onClose={()=>setShowCP(null)}/>}
+      {ecf!==null&&<CatPick t={t} onSelect={c=>{const it=items.find(i=>i.id===ecf);if(it)sIcm({...icm,[it.name.trim().toLowerCase()]:c});setItems(p=>p.map(i=>i.id===ecf?{...i,category:c}:i));setEcf(null);}} onClose={()=>setEcf(null)}/>}
+      {showScan&&<Scanner onResult={hScan} onClose={()=>setShowScan(false)}/>}
+      {pendingBC&&<BarcodeNameModal t={t} barcode={pendingBC} onSave={hPendingSave} onCancel={()=>setPendingBC(null)}/>}
+      {showTax&&<TaxPick t={t} state={tst} rate={trate} onSave={hTax} onClose={()=>setShowTax(false)}/>}
+      {showTrip&&<TripModal t={t} items={items} tst={tst} trate={trate} onDone={hComplete} onClose={()=>setShowTrip(false)}/>}
+      {showTheme&&<ThemePick t={t} current={tid} onSelect={id=>{sThm(id);setShowTheme(false);}} onClose={()=>setShowTheme(false)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
+</body>
+</html>

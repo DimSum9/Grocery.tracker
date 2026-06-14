@@ -30,9 +30,10 @@ const LS={
   set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
 };
 
-const CATEGORIES=["Produce","Dairy","Meat & Seafood","Frozen","Bakery","Beverages","Snacks","Pantry","Household","Other"];
-const CAT_ICONS={"Produce":"🥬","Dairy":"🧀","Meat & Seafood":"🥩","Frozen":"🧊","Bakery":"🍞","Beverages":"🥤","Snacks":"🍿","Pantry":"🥫","Household":"🧹","Other":"📦"};
-const CAT_CLR={"Produce":"#22c55e","Dairy":"#eab308","Meat & Seafood":"#ef4444","Frozen":"#06b6d4","Bakery":"#f59e0b","Beverages":"#8b5cf6","Snacks":"#f97316","Pantry":"#78716c","Household":"#3b82f6","Other":"#6b7280"};
+const CATEGORIES=["Produce","Dairy","Meat & Seafood","Frozen","Bakery","Beverages","Snacks","Pantry","Household","Medication","Beauty","Other"];
+const IN_CART_CAT="🛒 In the Cart";
+const CAT_ICONS={"Produce":"🥬","Dairy":"🧀","Meat & Seafood":"🥩","Frozen":"🧊","Bakery":"🍞","Beverages":"🥤","Snacks":"🍿","Pantry":"🥫","Household":"🧹","Medication":"💊","Beauty":"💄","Other":"📦",[IN_CART_CAT]:"🛒"};
+const CAT_CLR={"Produce":"#22c55e","Dairy":"#eab308","Meat & Seafood":"#ef4444","Frozen":"#06b6d4","Bakery":"#f59e0b","Beverages":"#8b5cf6","Snacks":"#f97316","Pantry":"#78716c","Household":"#3b82f6","Medication":"#ec4899","Beauty":"#a855f7","Other":"#6b7280",[IN_CART_CAT]:"#16a34a"};
 
 const GROCERY_TAX={"AL":9.22,"AK":1.76,"AZ":8.37,"AR":9.47,"CA":0,"CO":7.65,"CT":0,"DE":0,"FL":0,"GA":7.31,"HI":4.35,"ID":6.03,"IL":0,"IN":0,"IA":0,"KS":8.68,"KY":0,"LA":9.52,"ME":0,"MD":0,"MA":0,"MI":0,"MN":0,"MS":7.07,"MO":8.27,"MT":0,"NE":6.94,"NV":8.23,"NH":0,"NJ":0,"NM":7.82,"NY":0,"NC":6.98,"ND":6.96,"OH":0,"OK":8.94,"OR":0,"PA":0,"RI":0,"SC":7.43,"SD":6.40,"TN":9.547,"TX":0,"UT":3.0,"VT":0,"VA":2.5,"WA":0,"WV":0,"WI":0,"WY":5.36,"DC":6};
 const STATE_NAMES={"AL":"Alabama","AK":"Alaska","AZ":"Arizona","AR":"Arkansas","CA":"California","CO":"Colorado","CT":"Connecticut","DE":"Delaware","FL":"Florida","GA":"Georgia","HI":"Hawaii","ID":"Idaho","IL":"Illinois","IN":"Indiana","IA":"Iowa","KS":"Kansas","KY":"Kentucky","LA":"Louisiana","ME":"Maine","MD":"Maryland","MA":"Massachusetts","MI":"Michigan","MN":"Minnesota","MS":"Mississippi","MO":"Missouri","MT":"Montana","NE":"Nebraska","NV":"Nevada","NH":"New Hampshire","NJ":"New Jersey","NM":"New Mexico","NY":"New York","NC":"North Carolina","ND":"North Dakota","OH":"Ohio","OK":"Oklahoma","OR":"Oregon","PA":"Pennsylvania","RI":"Rhode Island","SC":"South Carolina","SD":"South Dakota","TN":"Tennessee","TX":"Texas","UT":"Utah","VT":"Vermont","VA":"Virginia","WA":"Washington","WV":"West Virginia","WI":"Wisconsin","WY":"Wyoming","DC":"Washington DC"};
@@ -857,9 +858,126 @@ function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
   );
 }
 
+/* ── Draggable Category List ── */
+function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk,togChk,setPei,setEcf,rmItem,IN_CART_CAT}){
+  const dragCat=useRef(null);
+  const dragOverCat=useRef(null);
+  const[dragging,setDragging]=useState(null);
+
+  const orderedCats=categoryOrder.filter(c=>grouped[c]&&c!==IN_CART_CAT);
+  const inCartItems=grouped[IN_CART_CAT]||[];
+  const bs={border:"none",cursor:"pointer",fontWeight:600};
+
+  const handleDragStart=(e,cat)=>{dragCat.current=cat;setDragging(cat);e.dataTransfer.effectAllowed="move";};
+  const handleDragOver=(e,cat)=>{e.preventDefault();dragOverCat.current=cat;};
+  const handleDrop=(e,cat)=>{
+    e.preventDefault();
+    if(!dragCat.current||dragCat.current===cat)return;
+    const newOrder=[...categoryOrder];
+    const fromIdx=newOrder.indexOf(dragCat.current);
+    const toIdx=newOrder.indexOf(cat);
+    if(fromIdx===-1||toIdx===-1)return;
+    newOrder.splice(fromIdx,1);
+    newOrder.splice(toIdx,0,dragCat.current);
+    onReorder(newOrder);
+    dragCat.current=null;dragOverCat.current=null;setDragging(null);
+  };
+  const handleDragEnd=()=>{dragCat.current=null;dragOverCat.current=null;setDragging(null);};
+
+  // Touch drag support
+  const touchState=useRef({});
+  const handleTouchStart=(e,cat)=>{
+    const t0=e.touches[0];
+    touchState.current={cat,startY:t0.clientY,startTime:Date.now()};
+  };
+  const handleTouchEnd=(e,cat)=>{
+    const ts=touchState.current;
+    if(!ts.cat||ts.cat===cat)return;
+    // only trigger if held >300ms
+    if(Date.now()-ts.startTime<300)return;
+    const newOrder=[...categoryOrder];
+    const fromIdx=newOrder.indexOf(ts.cat);
+    const toIdx=newOrder.indexOf(cat);
+    if(fromIdx===-1||toIdx===-1)return;
+    newOrder.splice(fromIdx,1);
+    newOrder.splice(toIdx,0,ts.cat);
+    onReorder(newOrder);
+    touchState.current={};
+  };
+
+  const renderItem=(item,isInCart)=>(
+    <div key={item.id} style={{display:"flex",alignItems:"center",padding:"8px 12px",background:t.card,borderLeft:`1px solid ${t.cb}`,borderRight:`1px solid ${t.cb}`,borderBottom:`1px solid ${t.cb}`,opacity:chk.has(item.id)?0.45:1}}>
+      <div onClick={()=>togChk(item.id)} style={{marginRight:8,cursor:"pointer"}}>
+        <div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${chk.has(item.id)?t.ac:t.inb}`,background:chk.has(item.id)?t.ac:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:t.act}}>{chk.has(item.id)?"✓":""}</div>
+      </div>
+      <div style={{flex:1,minWidth:0}}>
+        <p style={{fontSize:12,fontWeight:500,color:t.tx,textDecoration:chk.has(item.id)?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {item.qty>1&&<span style={{fontSize:11,fontWeight:700,color:t.ac,marginRight:4}}>×{item.qty}</span>}{item.name}
+        </p>
+        {isInCart&&item.originalCategory&&<p style={{fontSize:10,color:t.tx2}}>{CAT_ICONS[item.originalCategory]} {item.originalCategory}</p>}
+        {item.pm==="weight"&&item.up>0&&<p style={{fontSize:11,color:t.tx2}}>~{item.wt} {item.wu} @ ${item.up}/{item.wu}</p>}
+      </div>
+      <button onClick={()=>setPei(item)} style={{...bs,fontSize:12,fontWeight:700,marginRight:8,padding:"2px 6px",borderRadius:4,background:"transparent",color:item.price>0?t.ac:t.tx2}}>{item.price>0?`$${item.price.toFixed(2)}`:"$0.00"}</button>
+      {!isInCart&&<button onClick={()=>setEcf(item.id)} style={{...bs,fontSize:14,marginRight:4,background:"transparent"}}>{CAT_ICONS[item.originalCategory||item.category]||"📦"}</button>}
+      <button onClick={()=>rmItem(item.id)} style={{...bs,fontSize:16,background:"transparent",color:"#ef4444"}}>×</button>
+    </div>
+  );
+
+  const allEmpty=orderedCats.length===0&&inCartItems.length===0;
+
+  return(
+    <div style={{margin:"12px 12px 0"}}>
+      {allEmpty&&<div style={{textAlign:"center",padding:"48px 0"}}><p style={{fontSize:40,marginBottom:8}}>🛒</p><p style={{fontSize:14,fontWeight:500,color:t.tx2}}>Your list is empty</p></div>}
+
+      {orderedCats.map(cat=>(
+        <div key={cat} style={{marginBottom:8,opacity:dragging===cat?0.5:1,transition:"opacity 0.15s"}}
+          draggable
+          onDragStart={e=>handleDragStart(e,cat)}
+          onDragOver={e=>handleDragOver(e,cat)}
+          onDrop={e=>handleDrop(e,cat)}
+          onDragEnd={handleDragEnd}
+          onTouchStart={e=>handleTouchStart(e,cat)}
+          onTouchEnd={e=>handleTouchEnd(e,cat)}
+        >
+          <div onClick={()=>setCol(p=>({...p,[cat]:!p[cat]}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:"8px 8px 0 0",padding:"8px 12px",cursor:"pointer",userSelect:"none",background:t.card,border:`1px solid ${t.cb}`,borderBottom:"none"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:12,color:t.tx2,cursor:"grab",marginRight:2}}>⠿</span>
+              <span style={{fontSize:14}}>{CAT_ICONS[cat]}</span>
+              <span style={{fontSize:12,fontWeight:700,color:t.tx}}>{cat}</span>
+              <span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{grouped[cat].length}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,fontWeight:700,color:t.ac}}>${grouped[cat].reduce((s,i)=>s+i.price,0).toFixed(2)}</span>
+              <span style={{fontSize:11,color:t.tx2}}>{col[cat]?"▸":"▾"}</span>
+            </div>
+          </div>
+          {!col[cat]&&grouped[cat].map(item=>renderItem(item,false))}
+        </div>
+      ))}
+
+      {inCartItems.length>0&&(
+        <div style={{marginBottom:8,marginTop:4}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:"8px 8px 0 0",padding:"8px 12px",userSelect:"none",background:"linear-gradient(90deg,#16a34a20,#16a34a10)",border:`1px solid #16a34a40`,borderBottom:"none"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:14}}>🛒</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#16a34a"}}>In the Cart</span>
+              <span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{inCartItems.length}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#16a34a"}}>${inCartItems.reduce((s,i)=>s+i.price,0).toFixed(2)}</span>
+              <span style={{fontSize:11,color:t.tx2}}>{col[IN_CART_CAT]?"▸":"▾"}</span>
+            </div>
+          </div>
+          {!col[IN_CART_CAT]&&inCartItems.map(item=>renderItem(item,true))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main App ── */
 function App(){
-  const[tid,setTid]=useState(()=>LS.get("g_theme")||"mint");
+  const[tid,setTid]=useState(()=>LS.get("g_theme")||"sunset");
   const[tab,setTab]=useState("list");
   const[items,setItems]=useState(()=>LS.get("g_current_items")||[]);
   const[tst,setTst]=useState(()=>LS.get("g_loc_st")||"AZ");
@@ -884,6 +1002,7 @@ function App(){
   const[ecf,setEcf]=useState(null);
   const[chk,setChk]=useState(new Set());
   const[pei,setPei]=useState(null);
+  const[nq,setNq]=useState(1);
   const idR=useRef(Date.now());
 
   const t=THEMES[tid]||THEMES.mint;
@@ -897,13 +1016,13 @@ function App(){
   const hTax=(st,rt)=>{setTst(st);setTrate(rt);LS.set("g_loc_st",st);LS.set("g_loc_rt",rt);};
   const hGoals=(tb,per)=>{setTotalBudget(tb);setBudgetPeriod(per);LS.set("g_bgt",{tb,per});};
 
-  const addItem=(name,cat="Other",openPad=false)=>{
+  const addItem=(name,cat="Other",openPad=false,qty=1)=>{
     const id=idR.current++;
     const key=name.trim().toLowerCase();
     const rc=icm[key]||cat;
-    const item={id,name,category:rc,price:0,pm:"fixed",up:0,wt:0,wu:"lb"};
+    const item={id,name,category:rc,originalCategory:rc,price:0,pm:"fixed",up:0,wt:0,wu:"lb",qty:qty||1};
     setItems(p=>[...p,item]);
-    setNn("");setNc("Other");setShowAdd(false);
+    setNn("");setNc("Other");setNq(1);setShowAdd(false);
     if(openPad)setPei(item);
   };
 
@@ -952,25 +1071,48 @@ function App(){
   const hPendingSave=(name,cat)=>{saveBcDB({...bcDB,[pendingBC]:{name,category:cat}});addItem(name,cat,true);setPendingBC(null);};
   const rmItem=id=>setItems(p=>p.filter(i=>i.id!==id));
   const togChk=id=>setChk(p=>{const s=new Set(p);s.has(id)?s.delete(id):s.add(id);return s;});
-  const hPrice=data=>{const id=pei.id;setItems(p=>p.map(i=>i.id===id?{...i,...data}:i));setPei(null);};
+  const hPrice=data=>{
+    const id=pei.id;
+    setItems(p=>p.map(i=>{
+      if(i.id!==id)return i;
+      const newPrice=data.pm==="fixed"?data.price:(data.up||0)*(data.wt||0);
+      const newCat=newPrice>0?IN_CART_CAT:i.originalCategory||i.category;
+      return{...i,...data,category:newCat};
+    }));
+    setPei(null);
+  };
 
   const hComplete=store=>{
     const priced=items.filter(i=>i.price>0);
     const unpriced=items.filter(i=>i.price===0);
     const sub=priced.reduce((s,i)=>s+i.price,0);
     const tx=sub*trate/100;
-    const trip={date:new Date().toISOString(),store,items:priced.map(i=>({name:i.name,category:i.category,price:i.price})),subtotal:sub,tax:tx,total:sub+tx,location:tst};
+    const trip={date:new Date().toISOString(),store,items:priced.map(i=>({name:i.name,category:i.originalCategory||i.category,price:i.price})),subtotal:sub,tax:tx,total:sub+tx,location:tst};
     const upd=[...trips,trip];
     setTrips(upd);LS.set("g_trips",upd);
     const mem={...icm};
-    priced.forEach(i=>{mem[i.name.trim().toLowerCase()]=i.category;});
+    priced.forEach(i=>{mem[i.name.trim().toLowerCase()]=i.originalCategory||i.category;});
     sIcm(mem);
     // Keep only unpriced items on the list
     setItems(unpriced);
     setChk(new Set());setShowTrip(false);
   };
 
-  const grouped={};items.forEach(i=>{if(!grouped[i.category])grouped[i.category]=[];grouped[i.category].push(i);});
+  const[categoryOrder,setCategoryOrder]=useState(()=>{
+    const saved=LS.get("g_cat_order")||[];
+    // Merge: start with saved order, append any new categories not yet saved
+    const base=saved.filter(c=>CATEGORIES.includes(c));
+    const missing=CATEGORIES.filter(c=>!base.includes(c));
+    return [...base,...missing];
+  });
+  const saveCatOrder=ord=>{setCategoryOrder(ord);LS.set("g_cat_order",ord);};
+
+  const grouped={};
+  items.forEach(i=>{
+    const cat=i.category||"Other";
+    if(!grouped[cat])grouped[cat]=[];
+    grouped[cat].push(i);
+  });
   const sub=items.reduce((s,i)=>s+i.price,0);
   const tax=sub*trate/100;
   const tot=sub+tax;
@@ -993,50 +1135,42 @@ function App(){
 
       {tab==="list"?(
         <div style={{paddingBottom:144}}>
-          <div onClick={()=>setShowTax(true)} style={{margin:"12px 12px 0",padding:10,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
-            <div><span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,color:t.tx2}}>Grocery Tax</span><p style={{fontSize:14,fontWeight:700,marginTop:2,color:t.tx}}>📍 {STATE_NAMES[tst]||tst}</p></div>
-            <div style={{textAlign:"right"}}><span style={{fontSize:11,color:t.tx2}}>{trate===0?"Exempt":"Rate"}</span><p style={{fontSize:18,fontWeight:700,color:t.ac}}>{trate===0?"0%":`${trate}%`}</p></div>
-          </div>
 
           <div style={{margin:"8px 12px 0",display:"flex",gap:8}}>
             <button onClick={()=>setShowAdd(true)} style={{...bs,flex:1,padding:"10px 0",borderRadius:12,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:t.ac,color:t.act}}>+ Add</button>
             <button onClick={()=>setShowScan(true)} style={{...bs,flex:1,padding:"10px 0",borderRadius:12,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:t.acd,color:"#fff"}}>📷 Scan</button>
+            <button onClick={()=>setShowTax(true)} style={{...bs,padding:"10px 12px",borderRadius:12,fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",gap:4,background:t.card,color:t.tx,border:`1px solid ${t.cb}`,whiteSpace:"nowrap"}}>
+              <span style={{fontSize:11,color:t.tx2}}>Tax</span>
+              <span style={{fontWeight:700,color:t.ac,marginLeft:2}}>{trate===0?"Exempt":`${trate}%`}</span>
+              <span style={{fontSize:10,color:t.tx2,marginLeft:2}}>▾</span>
+            </button>
           </div>
 
           {showAdd&&(
             <div style={{margin:"8px 12px 0",padding:12,borderRadius:12,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
               <SmartInput t={t} value={nn} onChange={v=>{setNn(v);const key=v.trim().toLowerCase();if(icm[key])setNc(icm[key]);}} onSelect={handleSelectSuggestion} icm={icm} bcDB={bcDB}/>
               <button onClick={()=>setShowCP("new")} style={{...bs,width:"100%",padding:"6px 0",borderRadius:8,fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",gap:4,marginBottom:8,background:t.bar,color:t.tx}}>{CAT_ICONS[nc]} {nc}</button>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <span style={{fontSize:12,color:t.tx2,whiteSpace:"nowrap"}}>Qty:</span>
+                <div style={{display:"flex",alignItems:"center",gap:0,borderRadius:8,overflow:"hidden",border:`1px solid ${t.cb}`,background:t.bar}}>
+                  <button onClick={()=>setNq(q=>Math.max(1,q-1))} style={{...bs,width:32,height:32,fontSize:18,background:"transparent",color:t.tx}}>−</button>
+                  <span style={{minWidth:28,textAlign:"center",fontSize:14,fontWeight:700,color:t.tx}}>{nq}</span>
+                  <button onClick={()=>setNq(q=>q+1)} style={{...bs,width:32,height:32,fontSize:18,background:"transparent",color:t.tx}}>+</button>
+                </div>
+              </div>
               <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{setShowAdd(false);setNn("");setNc("Other");}} style={{...bs,flex:1,padding:"8px 0",borderRadius:8,fontSize:12,background:t.bar,color:t.tx2}}>Cancel</button>
-                <button onClick={()=>{if(nn.trim())addItem(nn.trim(),nc);}} style={{...bs,flex:1,padding:"8px 0",borderRadius:8,fontSize:12,background:t.ac,color:t.act}}>Add to List</button>
+                <button onClick={()=>{setShowAdd(false);setNn("");setNc("Other");setNq(1);}} style={{...bs,flex:1,padding:"8px 0",borderRadius:8,fontSize:12,background:t.bar,color:t.tx2}}>Cancel</button>
+                <button onClick={()=>{if(nn.trim())addItem(nn.trim(),nc,false,nq);}} style={{...bs,flex:1,padding:"8px 0",borderRadius:8,fontSize:12,background:t.ac,color:t.act}}>Add to List</button>
               </div>
             </div>
           )}
 
-          <div style={{margin:"12px 12px 0"}}>
-            {items.length===0&&<div style={{textAlign:"center",padding:"48px 0"}}><p style={{fontSize:40,marginBottom:8}}>🛒</p><p style={{fontSize:14,fontWeight:500,color:t.tx2}}>Your list is empty</p></div>}
-            {CATEGORIES.filter(c=>grouped[c]).map(cat=>(
-              <div key={cat} style={{marginBottom:8}}>
-                <div onClick={()=>setCol(p=>({...p,[cat]:!p[cat]}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:"8px 8px 0 0",padding:"8px 12px",cursor:"pointer",userSelect:"none",background:t.card,border:`1px solid ${t.cb}`,borderBottom:"none"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:14}}>{CAT_ICONS[cat]}</span><span style={{fontSize:12,fontWeight:700,color:t.tx}}>{cat}</span><span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{grouped[cat].length}</span></div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:12,fontWeight:700,color:t.ac}}>${grouped[cat].reduce((s,i)=>s+i.price,0).toFixed(2)}</span><span style={{fontSize:11,color:t.tx2}}>{col[cat]?"▸":"▾"}</span></div>
-                </div>
-                {!col[cat]&&grouped[cat].map(item=>(
-                  <div key={item.id} style={{display:"flex",alignItems:"center",padding:"8px 12px",background:t.card,borderLeft:`1px solid ${t.cb}`,borderRight:`1px solid ${t.cb}`,borderBottom:`1px solid ${t.cb}`,opacity:chk.has(item.id)?0.45:1}}>
-                    <div onClick={()=>togChk(item.id)} style={{marginRight:8,cursor:"pointer"}}><div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${chk.has(item.id)?t.ac:t.inb}`,background:chk.has(item.id)?t.ac:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:t.act}}>{chk.has(item.id)?"✓":""}</div></div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <p style={{fontSize:12,fontWeight:500,color:t.tx,textDecoration:chk.has(item.id)?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</p>
-                      {item.pm==="weight"&&item.up>0&&<p style={{fontSize:11,color:t.tx2}}>~{item.wt} {item.wu} @ ${item.up}/{item.wu}</p>}
-                    </div>
-                    <button onClick={()=>setPei(item)} style={{...bs,fontSize:12,fontWeight:700,marginRight:8,padding:"2px 6px",borderRadius:4,background:"transparent",color:item.price>0?t.ac:t.tx2}}>{item.price>0?`$${item.price.toFixed(2)}`:"$0.00"}</button>
-                    <button onClick={()=>setEcf(item.id)} style={{...bs,fontSize:14,marginRight:4,background:"transparent"}}>{CAT_ICONS[item.category]}</button>
-                    <button onClick={()=>rmItem(item.id)} style={{...bs,fontSize:16,background:"transparent",color:"#ef4444"}}>×</button>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
+          <DraggableCategoryList
+            t={t} grouped={grouped} categoryOrder={categoryOrder}
+            onReorder={saveCatOrder} col={col} setCol={setCol}
+            chk={chk} togChk={togChk} setPei={setPei} setEcf={setEcf} rmItem={rmItem}
+            IN_CART_CAT={IN_CART_CAT}
+          />
 
           {items.length>0&&(
             <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:10,padding:12,background:t.card,borderTop:`1px solid ${t.cb}`,boxShadow:"0 -4px 20px rgba(0,0,0,0.15)",backdropFilter:"blur(20px)"}}>
@@ -1055,7 +1189,7 @@ function App(){
       {scanLoading&&<LoadingOverlay t={t} msg="Looking up product..."/>}
       {pei&&<PriceModal t={t} item={pei} onSave={hPrice} onCancel={()=>setPei(null)}/>}
       {showCP==="new"&&<CatPick t={t} onSelect={c=>{setNc(c);setShowCP(null);}} onClose={()=>setShowCP(null)}/>}
-      {ecf!==null&&<CatPick t={t} onSelect={c=>{const it=items.find(i=>i.id===ecf);if(it)sIcm({...icm,[it.name.trim().toLowerCase()]:c});setItems(p=>p.map(i=>i.id===ecf?{...i,category:c}:i));setEcf(null);}} onClose={()=>setEcf(null)}/>}
+      {ecf!==null&&<CatPick t={t} onSelect={c=>{const it=items.find(i=>i.id===ecf);if(it)sIcm({...icm,[it.name.trim().toLowerCase()]:c});setItems(p=>p.map(i=>i.id===ecf?{...i,category:i.price>0?IN_CART_CAT:c,originalCategory:c}:i));setEcf(null);}} onClose={()=>setEcf(null)}/>}
       {showScan&&<Scanner onResult={hScan} onClose={()=>setShowScan(false)}/>}
       {pendingBC&&<BarcodeNameModal t={t} barcode={pendingBC} onSave={hPendingSave} onCancel={()=>setPendingBC(null)}/>}
       {showTax&&<TaxPick t={t} state={tst} rate={trate} onSave={hTax} onClose={()=>setShowTax(false)}/>}

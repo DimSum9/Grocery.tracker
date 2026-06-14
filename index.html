@@ -886,6 +886,8 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
     setDraggedH(0);
     document.body.style.userSelect="";
     document.body.style.overflow="";
+    document.documentElement.style.touchAction="";
+    document.body.style.touchAction="";
   };
 
   // Native pointerdown handler — attached imperatively via ref callback
@@ -899,10 +901,16 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
     if(handleRefs.current[cat]?.el===el)return; // already attached
 
     const handler=(e)=>{
+      // Only respond to primary button / first touch
+      if(e.button!=null&&e.button!==0)return;
       e.stopPropagation();
       e.preventDefault();
       const startY=e.clientY;
-      dragState.current={cat,startY,active:false};
+      const pointerId=e.pointerId;
+      dragState.current={cat,startY,active:false,pointerId};
+
+      // Capture the pointer to this element so all events come here regardless of finger position
+      try{el.setPointerCapture(pointerId);}catch{}
 
       dragState.current.holdTimer=setTimeout(()=>{
         const rowEl=rowRefs.current[cat];
@@ -925,8 +933,11 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
         dragState.current.dropIndex=Math.min(origIdx,others.length);
         dragState.current.snaps=snaps;
 
+        // Lock down the entire document so touch can't scroll the page
         document.body.style.userSelect="none";
         document.body.style.overflow="hidden";
+        document.documentElement.style.touchAction="none";
+        document.body.style.touchAction="none";
         if(navigator.vibrate)try{navigator.vibrate(15);}catch{}
 
         setDraggedH(h);
@@ -957,7 +968,7 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
         }
       };
 
-      const onUp=()=>{
+      const onUp=(ev)=>{
         clearTimeout(dragState.current.holdTimer);
         if(dragState.current.active){
           const{cat:dc,dropIndex:di}=dragState.current;
@@ -968,12 +979,23 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
           const invisible=latest.current.categoryOrder.filter(c=>!currentOrdered.includes(c));
           latest.current.onReorder([...newOrder,...invisible]);
         }
+        try{el.releasePointerCapture(pointerId);}catch{}
+        document.documentElement.style.touchAction="";
+        document.body.style.touchAction="";
         cancelDrag();
+        // Remove from BOTH the element (captured) and window (fallback)
+        el.removeEventListener("pointermove",onMove);
+        el.removeEventListener("pointerup",onUp);
+        el.removeEventListener("pointercancel",onUp);
         window.removeEventListener("pointermove",onMove);
         window.removeEventListener("pointerup",onUp);
         window.removeEventListener("pointercancel",onUp);
       };
 
+      // Attach to the captured element AND to window as backup
+      el.addEventListener("pointermove",onMove);
+      el.addEventListener("pointerup",onUp);
+      el.addEventListener("pointercancel",onUp);
       window.addEventListener("pointermove",onMove);
       window.addEventListener("pointerup",onUp);
       window.addEventListener("pointercancel",onUp);

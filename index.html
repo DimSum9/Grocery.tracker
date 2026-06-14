@@ -21,6 +21,7 @@ input,select,button,textarea{font-family:inherit}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
 <script type="text/babel">
 const{useState,useRef,useEffect,useMemo,useCallback}=React;
@@ -463,41 +464,43 @@ function TripDetailModal({t,trip,tripIndex,onEditName,onDelete,onClose}){
   );
 }
 
-/* ── Receipt OCR using native Web APIs ── */
-async function parseReceiptImage(imageUrl){
+/* ── Receipt OCR using Tesseract.js ── */
+async function parseReceiptImage(imageUrl,onProgress){
   return new Promise((resolve)=>{
     const img=new Image();
     img.crossOrigin="anonymous";
-    img.onload=()=>{
+    img.onload=async()=>{
       try{
-        // Draw to canvas and get pixel data for preprocessing
+        // Preprocess: high-contrast grayscale for better OCR
         const canvas=document.createElement("canvas");
         const MAX=1200;
         const scale=Math.min(1,MAX/Math.max(img.width,img.height));
         canvas.width=img.width*scale;
         canvas.height=img.height*scale;
         const ctx=canvas.getContext("2d");
-        // Convert to high-contrast grayscale for better OCR
         ctx.filter="grayscale(1) contrast(1.8) brightness(1.1)";
         ctx.drawImage(img,0,0,canvas.width,canvas.height);
 
-        // Use Web Speech / Chrome's built-in vision if available
-        if("EyeDropper" in window||true){
-          // Try navigator.ml or Chrome's built-in OCR via clipboard workaround
-          // Fall back to canvas-based pattern matching
-          canvas.toBlob(async(blob)=>{
-            // Try the Clipboard API + Vision approach on supported browsers
-            let text="";
-            try{
-              // Use ImageCapture or MediaDevices if available
-              // Primary: Use fetch to send to a local pattern extractor
-              const dataUrl=canvas.toDataURL("image/jpeg",0.85);
-              // Pattern-based extraction from pixel analysis
-              text=await extractTextPatterns(canvas,ctx);
-            }catch{text="";}
-            resolve(parseReceiptText(text));
-          },"image/jpeg",0.85);
+        let text="";
+        try{
+          if(typeof Tesseract!=="undefined"){
+            const result=await Tesseract.recognize(canvas,"eng",{
+              logger:m=>{if(m.status==="recognizing text"&&onProgress)onProgress(Math.round(m.progress*100));}
+            });
+            text=result.data.text||"";
+          }
+        }catch(err){console.warn("Tesseract OCR failed:",err);}
+
+        // Fallback: try Chrome TextDetector if Tesseract failed
+        if(!text&&"TextDetector" in window){
+          try{
+            const td=new TextDetector();
+            const texts=await td.detect(canvas);
+            text=texts.map(t=>t.rawValue).join("\n");
+          }catch{}
         }
+
+        resolve(parseReceiptText(text));
       }catch{resolve({total:"",date:"",store:"",note:"Could not read image."});}
     };
     img.onerror=()=>resolve({total:"",date:"",store:"",note:"Could not load image."});
@@ -505,28 +508,16 @@ async function parseReceiptImage(imageUrl){
   });
 }
 
-// Use Chrome's built-in Shape Detection / OCR API if available
-async function extractTextPatterns(canvas,ctx){
-  // Check for Chrome's experimental TextDetector
-  if("TextDetector" in window){
-    try{
-      const td=new TextDetector();
-      const texts=await td.detect(canvas);
-      return texts.map(t=>t.rawValue).join("\n");
-    }catch{}
-  }
-  return "";
-}
-
 function parseReceiptText(text){
-  if(!text||text.trim().length===0) return{total:"",date:"",store:"",note:"manual"};
+  if(!text||text.trim().length===0) return{total:"",date:"",store:"",note:"⚠️ Could not read text. Please enter details manually."};
   const lines=text.split("\n").map(l=>l.trim()).filter(Boolean);
 
-  // Extract total — try multiple patterns
+  // Extract total — try multiple patterns (most specific first)
   let total="";
   const totalPatterns=[
-    /(?:grand\s*total|total\s*amount|amount\s*due|balance\s*due|total)[^\d]*\$?\s*(\d{1,4}[.,]\d{2})/i,
-    /(?:total)[^\d]*(\d{1,4}[.,]\d{2})/i,
+    /(?:grand\s*total|total\s*amount|amount\s*due|balance\s*due|total\s*due|net\s*total)[:\s]*\$?\s*(\d{1,4}[.,]\d{2})/i,
+    /(?:total)[:\s]*\$?\s*(\d{1,4}[.,]\d{2})/i,
+    /(?:total)[^\d\n]*(\d{1,4}[.,]\d{2})/i,
     /\$\s*(\d{1,4}\.\d{2})\s*$/m,
   ];
   for(const pat of totalPatterns){
@@ -545,15 +536,18 @@ function parseReceiptText(text){
     /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/,
     /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})/,
     /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})/i,
+    /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/,
   ];
   for(const pat of datePatterns){
     const m=text.match(pat);
     if(m){
       try{
         let yr,mo,dy;
-        if(m[1]&&isNaN(m[1])){// Month name pattern
+        if(m[1]&&isNaN(m[1])){
           const months={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
           mo=months[m[1].toLowerCase().slice(0,3)];dy=parseInt(m[2]);yr=parseInt(m[3]);
+        }else if(parseInt(m[1])>1900){
+          yr=parseInt(m[1]);mo=parseInt(m[2])-1;dy=parseInt(m[3]);
         }else{
           mo=parseInt(m[1])-1;dy=parseInt(m[2]);yr=parseInt(m[3]);
           if(yr<100)yr+=2000;
@@ -565,16 +559,25 @@ function parseReceiptText(text){
     }
   }
 
-  // Store name — usually first meaningful line
+  // Store name — usually the first or second meaningful line (before address/phone)
   let store="";
-  const skipWords=/^(date|time|receipt|thank|welcome|cashier|operator|store|#|\d)/i;
-  for(const line of lines.slice(0,5)){
-    if(line.length>2&&line.length<50&&!skipWords.test(line)&&isNaN(line)){
-      store=line;break;
+  const skipWords=/^(date|time|receipt|thank|welcome|cashier|operator|store\s*#|register|terminal|trans|tel|phone|fax|www\.|http|order|#\d|\d{3}[\-\.]\d{3})/i;
+  const addressLike=/^\d+\s+(N|S|E|W|NE|NW|SE|SW|North|South|East|West)/i;
+  for(const line of lines.slice(0,8)){
+    const clean=line.replace(/[^a-zA-Z0-9\s&'.\-]/g,"").trim();
+    if(clean.length>2&&clean.length<60&&!skipWords.test(clean)&&!addressLike.test(clean)&&isNaN(clean)&&!/^\d+$/.test(clean)){
+      store=clean;break;
     }
   }
 
-  const note=total?`✅ Total detected: ${total}`:"⚠️ Could not detect total — please enter manually.";
+  const detectedParts=[];
+  if(store)detectedParts.push("store");
+  if(total)detectedParts.push("total");
+  if(date!==new Date().toISOString().split("T")[0])detectedParts.push("date");
+
+  const note=detectedParts.length>0
+    ?`✅ Detected: ${detectedParts.join(", ")}. Please verify below.`
+    :"⚠️ Could not auto-detect details — please enter manually.";
   return{total,date,store,note};
 }
 
@@ -586,6 +589,7 @@ function ReceiptScanner({t,onCapture,onClose}){
   const[store,setStore]=useState("");
   const[parsing,setParsing]=useState(false);
   const[ocrNote,setOcrNote]=useState("");
+  const[ocrPct,setOcrPct]=useState(0);
   const[showPad,setShowPad]=useState(false);
   const[padVal,setPadVal]=useState("");
   const fileRef=useRef(null);
@@ -596,11 +600,11 @@ function ReceiptScanner({t,onCapture,onClose}){
     const url=URL.createObjectURL(file);
     setPreview(url);
     setParsing(true);
+    setOcrPct(0);
     setOcrNote("Reading receipt...");
-    // Give UI time to render before heavy work
     setTimeout(async()=>{
       try{
-        const result=await parseReceiptImage(url);
+        const result=await parseReceiptImage(url,(pct)=>{setOcrPct(pct);setOcrNote(`Reading receipt... ${pct}%`);});
         if(result.total)setTotal(result.total);
         if(result.date)setDate(result.date);
         if(result.store)setStore(result.store);
@@ -637,7 +641,10 @@ function ReceiptScanner({t,onCapture,onClose}){
               <img src={preview} style={{width:"100%",borderRadius:8,marginBottom:8,maxHeight:200,objectFit:"cover"}}/>
               {parsing?(
                 <div style={{padding:"10px 12px",borderRadius:8,background:t.bar,marginBottom:8,textAlign:"center"}}>
-                  <p style={{color:t.ac,fontSize:12}}>⏳ Analyzing receipt...</p>
+                  <p style={{color:t.ac,fontSize:12,marginBottom:6}}>⏳ {ocrNote}</p>
+                  <div style={{height:6,borderRadius:3,overflow:"hidden",background:t.cb}}>
+                    <div style={{height:"100%",borderRadius:3,width:`${ocrPct}%`,background:t.ac,transition:"width 0.3s"}}/>
+                  </div>
                 </div>
               ):ocrNote?(
                 <div style={{padding:"8px 10px",borderRadius:8,background:t.bar,marginBottom:8}}>

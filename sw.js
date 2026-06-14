@@ -1,4 +1,4 @@
-const CACHE_NAME = 'grocery-expense-tracker-v14';
+const CACHE_NAME = 'grocery-expense-tracker-v15';
 
 const STATIC_ASSETS = [
   '/Grocery.tracker/',
@@ -8,7 +8,8 @@ const STATIC_ASSETS = [
   '/Grocery.tracker/icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js',
+  'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'
 ];
 
 // URLs that should always be fetched fresh (APIs)

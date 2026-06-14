@@ -1,11 +1,11 @@
 const CACHE_NAME = 'grocery-expense-tracker-v3';
 
 const STATIC_ASSETS = [
-  '/grocery-tracker/',
-  '/grocery-tracker/index.html',
-  '/grocery-tracker/manifest.json',
-  '/grocery-tracker/icon-192.png',
-  '/grocery-tracker/icon-512.png',
+  '/Grocery.tracker/',
+  '/Grocery.tracker/index.html',
+  '/Grocery.tracker/manifest.json',
+  '/Grocery.tracker/icon-192.png',
+  '/Grocery.tracker/icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js'
@@ -69,7 +69,7 @@ self.addEventListener('fetch', event => {
       }).catch(() => {
         // Offline fallback — return app shell
         if (event.request.mode === 'navigate') {
-          return caches.match('/grocery-tracker/index.html');
+          return caches.match('/Grocery.tracker/index.html');
         }
       });
     })

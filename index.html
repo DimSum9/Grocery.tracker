@@ -860,35 +860,25 @@ function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
 
 /* ── Draggable Category List ── */
 function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk,togChk,setPei,setEcf,rmItem,IN_CART_CAT}){
-  const rowRefs=useRef({});          // ref to each category's DOM row
-  const dragState=useRef({});        // mutable drag state (no re-render needed)
+  const rowRefs=useRef({});
+  const handleRefs=useRef({});
+  const dragState=useRef({});
   const[draggingCat,setDraggingCat]=useState(null);
-  const[dropIndex,setDropIndex]=useState(null);  // insert position index in orderedCats (excl. dragged)
-  const[draggedH,setDraggedH]=useState(0);       // pixel height of the dragged card
+  const[dropIndex,setDropIndex]=useState(null);
+  const[draggedH,setDraggedH]=useState(0);
+  // Keep latest values in refs so native event handlers see current data
+  const latest=useRef({orderedCats:[],categoryOrder:[],onReorder:()=>{}});
 
   const orderedCats=categoryOrder.filter(c=>grouped[c]&&c!==IN_CART_CAT);
   const inCartItems=grouped[IN_CART_CAT]||[];
   const bs={border:"none",cursor:"pointer",fontWeight:600};
 
-  // orderedCats without the dragged item — these are the "other" cards
-  const otherCats=useMemo(()=>
-    draggingCat?orderedCats.filter(c=>c!==draggingCat):orderedCats
-  ,[draggingCat,orderedCats]);
+  // Update refs every render
+  latest.current.orderedCats=orderedCats;
+  latest.current.categoryOrder=categoryOrder;
+  latest.current.onReorder=onReorder;
 
-  // For each other card, compute how many px to translateY it.
-  // Cards ABOVE the dragged card's origin that are now BELOW the drop point move UP by draggedH+8.
-  // Cards BELOW the dragged card's origin that are now AT or ABOVE the drop point move DOWN by draggedH+8.
-  const getTranslate=useCallback((cat)=>{
-    if(!draggingCat||dropIndex===null)return 0;
-    const origFrom=orderedCats.indexOf(draggingCat); // original position
-    const otherIdx=otherCats.indexOf(cat);           // position in "others" list
-    const gap=draggedH+8;
-    // Items at or after the drop slot need to scoot down to make room
-    if(otherIdx>=dropIndex)return gap;
-    return 0;
-  },[draggingCat,dropIndex,orderedCats,otherCats,draggedH]);
-
-  const cancelDrag=useCallback(()=>{
+  const cancelDrag=()=>{
     clearTimeout(dragState.current.holdTimer);
     dragState.current={};
     setDraggingCat(null);
@@ -896,73 +886,107 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
     setDraggedH(0);
     document.body.style.userSelect="";
     document.body.style.overflow="";
+  };
+
+  // Native pointerdown handler — attached imperatively via ref callback
+  const attachHandle=(cat)=>(el)=>{
+    if(!el){
+      // Cleanup if any
+      if(handleRefs.current[cat]?.cleanup)handleRefs.current[cat].cleanup();
+      delete handleRefs.current[cat];
+      return;
+    }
+    if(handleRefs.current[cat]?.el===el)return; // already attached
+
+    const handler=(e)=>{
+      e.stopPropagation();
+      e.preventDefault();
+      const startY=e.clientY;
+      dragState.current={cat,startY,active:false};
+
+      dragState.current.holdTimer=setTimeout(()=>{
+        const rowEl=rowRefs.current[cat];
+        const h=rowEl?rowEl.getBoundingClientRect().height:60;
+        const currentOrdered=latest.current.orderedCats;
+        const others=currentOrdered.filter(c=>c!==cat);
+        const origIdx=currentOrdered.indexOf(cat);
+
+        // Snapshot midpoints BEFORE state changes
+        const snaps={};
+        others.forEach(c=>{
+          const el=rowRefs.current[c];
+          if(!el)return;
+          const r=el.getBoundingClientRect();
+          snaps[c]=r.top+r.height/2;
+        });
+
+        dragState.current.active=true;
+        dragState.current.draggedH=h;
+        dragState.current.dropIndex=Math.min(origIdx,others.length);
+        dragState.current.snaps=snaps;
+
+        document.body.style.userSelect="none";
+        document.body.style.overflow="hidden";
+        if(navigator.vibrate)try{navigator.vibrate(15);}catch{}
+
+        setDraggedH(h);
+        setDraggingCat(cat);
+        setDropIndex(dragState.current.dropIndex);
+      },200);
+
+      const onMove=(ev)=>{
+        if(!dragState.current.active){
+          const dy=Math.abs((ev.clientY||0)-startY);
+          if(dy>10)clearTimeout(dragState.current.holdTimer);
+          return;
+        }
+        ev.preventDefault();
+        const y=ev.clientY;
+        const draggedCat=dragState.current.cat;
+        const others=latest.current.orderedCats.filter(c=>c!==draggedCat);
+        const snaps=dragState.current.snaps||{};
+        let newIdx=others.length;
+        for(let i=0;i<others.length;i++){
+          const mid=snaps[others[i]];
+          if(mid==null)continue;
+          if(y<mid){newIdx=i;break;}
+        }
+        if(newIdx!==dragState.current.dropIndex){
+          dragState.current.dropIndex=newIdx;
+          setDropIndex(newIdx);
+        }
+      };
+
+      const onUp=()=>{
+        clearTimeout(dragState.current.holdTimer);
+        if(dragState.current.active){
+          const{cat:dc,dropIndex:di}=dragState.current;
+          const currentOrdered=latest.current.orderedCats;
+          const others=currentOrdered.filter(c=>c!==dc);
+          const newOrder=[...others];
+          newOrder.splice(Math.min(di,others.length),0,dc);
+          const invisible=latest.current.categoryOrder.filter(c=>!currentOrdered.includes(c));
+          latest.current.onReorder([...newOrder,...invisible]);
+        }
+        cancelDrag();
+        window.removeEventListener("pointermove",onMove);
+        window.removeEventListener("pointerup",onUp);
+        window.removeEventListener("pointercancel",onUp);
+      };
+
+      window.addEventListener("pointermove",onMove);
+      window.addEventListener("pointerup",onUp);
+      window.addEventListener("pointercancel",onUp);
+    };
+
+    el.addEventListener("pointerdown",handler);
+    handleRefs.current[cat]={el,cleanup:()=>el.removeEventListener("pointerdown",handler)};
+  };
+
+  useEffect(()=>()=>{
+    Object.values(handleRefs.current).forEach(h=>h.cleanup?.());
+    cancelDrag();
   },[]);
-
-  const onHandlePointerDown=useCallback((e,cat)=>{
-    e.stopPropagation();
-    const startY=e.clientY;
-    dragState.current={cat,startY,active:false};
-
-    // Hold 220ms to activate drag
-    dragState.current.holdTimer=setTimeout(()=>{
-      const el=rowRefs.current[cat];
-      const h=el?el.getBoundingClientRect().height:60;
-      dragState.current.active=true;
-      dragState.current.draggedH=h;
-      // Determine starting drop index (original position among others)
-      const others=orderedCats.filter(c=>c!==cat);
-      const origIdx=orderedCats.indexOf(cat);
-      dragState.current.origIdx=origIdx;
-      document.body.style.userSelect="none";
-      document.body.style.overflow="hidden";
-      setDraggedH(h);
-      setDraggingCat(cat);
-      setDropIndex(origIdx); // start at original slot
-    },220);
-
-    const onMove=(ev)=>{
-      if(!dragState.current.active)return;
-      const y=ev.clientY;
-      const dy=y-startY;
-      const cat=dragState.current.cat;
-      const others=orderedCats.filter(c=>c!==cat);
-      // Find which slot the finger is in by checking midpoints of other rows
-      let newIdx=others.length; // default: end
-      for(let i=0;i<others.length;i++){
-        const el=rowRefs.current[others[i]];
-        if(!el)continue;
-        const r=el.getBoundingClientRect();
-        // Each "other" card may itself be translated, so use its natural top + shift
-        const translate=dragState.current.active?getTranslate(others[i]):0;
-        const naturalMid=(r.top-translate)+r.height/2;
-        if(y<naturalMid){newIdx=i;break;}
-      }
-      dragState.current.dropIndex=newIdx;
-      setDropIndex(newIdx);
-    };
-
-    const onUp=()=>{
-      clearTimeout(dragState.current.holdTimer);
-      if(dragState.current.active){
-        const{cat,dropIndex:di}=dragState.current;
-        const others=orderedCats.filter(c=>c!==cat);
-        const newOrder=[...others];
-        const idx=di===null?others.length:Math.min(di,others.length);
-        newOrder.splice(idx,0,cat);
-        // Rebuild full categoryOrder preserving cats not currently visible
-        const invisible=categoryOrder.filter(c=>!orderedCats.includes(c));
-        onReorder([...newOrder,...invisible]);
-      }
-      cancelDrag();
-      window.removeEventListener("pointermove",onMove);
-      window.removeEventListener("pointerup",onUp);
-    };
-
-    window.addEventListener("pointermove",onMove);
-    window.addEventListener("pointerup",onUp);
-  },[orderedCats,categoryOrder,onReorder,cancelDrag,getTranslate]);
-
-  useEffect(()=>()=>cancelDrag(),[cancelDrag]);
 
   const renderItem=(item,isInCart)=>(
     <div key={item.id} style={{display:"flex",alignItems:"center",padding:"8px 12px",background:t.card,borderLeft:`1px solid ${t.cb}`,borderRight:`1px solid ${t.cb}`,borderBottom:`1px solid ${t.cb}`,opacity:chk.has(item.id)?0.45:1}}>
@@ -984,73 +1008,82 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
 
   const allEmpty=orderedCats.length===0&&inCartItems.length===0;
 
+  const renderPlaceholder=(key)=>(
+    <div key={key} style={{
+      height:draggedH,
+      marginBottom:8,
+      borderRadius:8,
+      border:`2px dashed ${t.ac}`,
+      background:`${t.ac}10`,
+      boxShadow:`inset 0 0 0 1px ${t.ac}33`,
+      transition:"height 0.2s cubic-bezier(0.25,0.8,0.25,1)",
+    }}/>
+  );
+
+  const renderRow=(cat,collapsed=false)=>(
+    <div
+      key={cat}
+      ref={el=>{rowRefs.current[cat]=el;}}
+      style={{
+        marginBottom:collapsed?0:8,
+        maxHeight:collapsed?0:9999,
+        overflow:collapsed?"hidden":"visible",
+        opacity:collapsed?0:1,
+        transition:"max-height 0.2s cubic-bezier(0.25,0.8,0.25,1), margin-bottom 0.2s, opacity 0.15s",
+      }}
+    >
+      <div style={{
+        borderRadius:8,overflow:"hidden",
+        border:`1px solid ${t.cb}`,
+        boxShadow:t.sh,
+      }}>
+        <div
+          onClick={()=>!draggingCat&&setCol(p=>({...p,[cat]:!p[cat]}))}
+          style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"8px 12px",userSelect:"none",background:t.card,
+            borderBottom:!col[cat]&&grouped[cat]?.length?`1px solid ${t.cb}`:"none",
+          }}
+        >
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span
+              ref={attachHandle(cat)}
+              style={{fontSize:18,color:t.tx2,cursor:"grab",marginRight:4,lineHeight:1,touchAction:"none",padding:"4px 6px",borderRadius:4,background:t.bar,display:"inline-block"}}
+            >⠿</span>
+            <span style={{fontSize:14}}>{CAT_ICONS[cat]}</span>
+            <span style={{fontSize:12,fontWeight:700,color:t.tx}}>{cat}</span>
+            <span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{grouped[cat].length}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,fontWeight:700,color:t.ac}}>${grouped[cat].reduce((s,i)=>s+i.price,0).toFixed(2)}</span>
+            <span style={{fontSize:11,color:t.tx2}}>{col[cat]?"▸":"▾"}</span>
+          </div>
+        </div>
+        {!col[cat]&&grouped[cat].map(item=>renderItem(item,false))}
+      </div>
+    </div>
+  );
+
+  const buildList=()=>{
+    if(!draggingCat)return orderedCats.map(cat=>renderRow(cat));
+    const items=[];
+    const others=orderedCats.filter(c=>c!==draggingCat);
+    for(let i=0;i<others.length;i++){
+      if(i===dropIndex)items.push(renderPlaceholder("__ph"));
+      items.push(renderRow(others[i]));
+    }
+    if(dropIndex>=others.length)items.push(renderPlaceholder("__ph"));
+    items.push(renderRow(draggingCat,true));
+    return items;
+  };
+
   return(
     <div style={{margin:"12px 12px 0"}}>
       {allEmpty&&<div style={{textAlign:"center",padding:"48px 0"}}><p style={{fontSize:40,marginBottom:8}}>🛒</p><p style={{fontSize:14,fontWeight:500,color:t.tx2}}>Your list is empty</p></div>}
 
-      {/* Render ALL rows in original order; translate "other" rows to open gap */}
-      <div style={{position:"relative"}}>
-        {orderedCats.map((cat)=>{
-          const isDragging=draggingCat===cat;
-          const translate=isDragging?0:getTranslate(cat);
-
-          return(
-            <div
-              key={cat}
-              ref={el=>rowRefs.current[cat]=el}
-              style={{
-                marginBottom:8,
-                transform:`translateY(${translate}px)`,
-                transition:isDragging?"none":"transform 0.18s cubic-bezier(0.25,0.8,0.25,1)",
-                opacity:isDragging?0.15:1,
-                zIndex:isDragging?0:1,
-                position:"relative",
-              }}
-            >
-              <div style={{
-                borderRadius:8,overflow:"hidden",
-                border:`1px solid ${t.cb}`,
-                boxShadow:t.sh,
-              }}>
-                <div
-                  onClick={()=>!draggingCat&&setCol(p=>({...p,[cat]:!p[cat]}))}
-                  style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-                    padding:"8px 12px",userSelect:"none",background:t.card,
-                    borderBottom:!col[cat]&&grouped[cat]?.length?`1px solid ${t.cb}`:"none",
-                  }}
-                >
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <span
-                      onPointerDown={e=>onHandlePointerDown(e,cat)}
-                      style={{fontSize:15,color:t.tx2,cursor:"grab",marginRight:2,lineHeight:1,touchAction:"none",padding:"2px 3px",borderRadius:4}}
-                    >⠿</span>
-                    <span style={{fontSize:14}}>{CAT_ICONS[cat]}</span>
-                    <span style={{fontSize:12,fontWeight:700,color:t.tx}}>{cat}</span>
-                    <span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{grouped[cat].length}</span>
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:12,fontWeight:700,color:t.ac}}>${grouped[cat].reduce((s,i)=>s+i.price,0).toFixed(2)}</span>
-                    <span style={{fontSize:11,color:t.tx2}}>{col[cat]?"▸":"▾"}</span>
-                  </div>
-                </div>
-                {!col[cat]&&grouped[cat].map(item=>renderItem(item,false))}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Floating ghost card that follows the finger */}
-        {draggingCat&&(
-          <FloatingGhost
-            t={t} cat={draggingCat} grouped={grouped} col={col}
-            rowRefs={rowRefs} dropIndex={dropIndex} otherCats={otherCats}
-            draggedH={draggedH} getTranslate={getTranslate}
-          />
-        )}
-      </div>
+      <div>{buildList()}</div>
 
       {inCartItems.length>0&&(
-        <div style={{marginBottom:8,marginTop:draggingCat?draggedH+8:4}}>
+        <div style={{marginBottom:8,marginTop:4}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:"8px 8px 0 0",padding:"8px 12px",userSelect:"none",background:"linear-gradient(90deg,#16a34a20,#16a34a10)",border:`1px solid #16a34a40`,borderBottom:"none"}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:14}}>🛒</span>
@@ -1065,64 +1098,6 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
           {!col[IN_CART_CAT]&&inCartItems.map(item=>renderItem(item,true))}
         </div>
       )}
-    </div>
-  );
-}
-
-/* Ghost card that floats at the drop slot position */
-function FloatingGhost({t,cat,grouped,col,rowRefs,dropIndex,otherCats,draggedH,getTranslate}){
-  // Position: sit exactly where the gap has opened up
-  // Find the card just after the drop slot to anchor position
-  const topPx=useMemo(()=>{
-    if(dropIndex===null||otherCats.length===0)return null;
-    if(dropIndex>=otherCats.length){
-      // Drop at end: position below last other card
-      const lastCat=otherCats[otherCats.length-1];
-      const el=rowRefs.current[lastCat];
-      if(!el)return null;
-      const r=el.getBoundingClientRect();
-      const parentR=el.closest("[data-catlist]")?.getBoundingClientRect()||{top:0};
-      const translate=getTranslate(lastCat);
-      return(r.top-parentR.top)+translate+r.height+8;
-    }
-    // Drop before otherCats[dropIndex]: position where that card WAS before sliding
-    const anchorCat=otherCats[dropIndex];
-    const el=rowRefs.current[anchorCat];
-    if(!el)return null;
-    const r=el.getBoundingClientRect();
-    const parentR=el.parentElement?.getBoundingClientRect()||{top:0};
-    // The anchor card has slid down by draggedH+8, so its natural top is r.top - translate
-    return r.top-parentR.top;
-  },[dropIndex,otherCats,rowRefs,getTranslate,draggedH]);
-
-  if(topPx===null)return null;
-
-  return(
-    <div style={{
-      position:"absolute",left:0,right:0,
-      top:topPx,
-      zIndex:10,
-      pointerEvents:"none",
-    }}>
-      <div style={{
-        borderRadius:8,overflow:"hidden",
-        border:`2px dashed ${t.ac}`,
-        background:`${t.ac}12`,
-        opacity:0.85,
-        boxShadow:`0 4px 24px ${t.ac}44`,
-      }}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-          padding:"8px 12px",background:`${t.ac}18`,
-        }}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:15,color:t.ac,marginRight:2}}>⠿</span>
-            <span style={{fontSize:14}}>{CAT_ICONS[cat]}</span>
-            <span style={{fontSize:12,fontWeight:700,color:t.ac}}>{cat}</span>
-            <span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{grouped[cat].length}</span>
-          </div>
-          <span style={{fontSize:12,fontWeight:700,color:t.ac}}>${grouped[cat].reduce((s,i)=>s+i.price,0).toFixed(2)}</span>
-        </div>
-      </div>
     </div>
   );
 }

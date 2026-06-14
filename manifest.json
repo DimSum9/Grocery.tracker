@@ -1,7 +1,7 @@
 {
   "name": "Grocery Expense Tracker",
   "short_name": "Grocery",
-  "description": "Track grocery prices, manage budgets, and scan barcodes — all offline on your phone.",
+  "description": "Track grocery prices, scan barcodes, manage budgets, and estimate local tax — all offline on your phone.",
   "start_url": "/grocery-tracker/",
   "scope": "/grocery-tracker/",
   "display": "standalone",
@@ -21,5 +21,8 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "categories": ["food", "lifestyle", "utilities"],
+  "screenshots": [],
+  "lang": "en-US"
 }

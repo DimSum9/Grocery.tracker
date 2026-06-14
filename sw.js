@@ -1,5 +1,6 @@
-const CACHE_NAME = 'grocery-expense-tracker-v1';
-const ASSETS = [
+const CACHE_NAME = 'grocery-expense-tracker-v3';
+
+const STATIC_ASSETS = [
   '/grocery-tracker/',
   '/grocery-tracker/index.html',
   '/grocery-tracker/manifest.json',
@@ -10,24 +11,67 @@ const ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js'
 ];
 
+// URLs that should always be fetched fresh (APIs)
+const NETWORK_FIRST = [
+  'nominatim.openstreetmap.org',
+  'world.openfoodfacts.org'
+];
+
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(STATIC_ASSETS))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
+      Promise.all(
+        keys
+          .filter(k => k !== CACHE_NAME)
+          .map(k => caches.delete(k))
+      )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', event => {
+  const url = event.request.url;
+
+  // Network-first for live APIs (tax lookup, barcode lookup, location)
+  const isNetworkFirst = NETWORK_FIRST.some(domain => url.includes(domain));
+  if (isNetworkFirst) {
+    event.respondWith(
+      fetch(event.request)
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Cache-first for static assets (app shell, React, icons)
   event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      return fetch(event.request).then(response => {
+        // Cache valid GET responses
+        if (
+          event.request.method === 'GET' &&
+          response &&
+          response.status === 200 &&
+          response.type !== 'opaque'
+        ) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      }).catch(() => {
+        // Offline fallback — return app shell
+        if (event.request.mode === 'navigate') {
+          return caches.match('/grocery-tracker/index.html');
+        }
+      });
+    })
   );
 });

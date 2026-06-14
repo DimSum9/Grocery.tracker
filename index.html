@@ -922,9 +922,9 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
         // Snapshot midpoints BEFORE state changes
         const snaps={};
         others.forEach(c=>{
-          const el=rowRefs.current[c];
-          if(!el)return;
-          const r=el.getBoundingClientRect();
+          const elx=rowRefs.current[c];
+          if(!elx)return;
+          const r=elx.getBoundingClientRect();
           snaps[c]=r.top+r.height/2;
         });
 

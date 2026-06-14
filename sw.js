@@ -1,4 +1,4 @@
-const CACHE_NAME = 'grocery-expense-tracker-v10';
+const CACHE_NAME = 'grocery-expense-tracker-v14';
 
 const STATIC_ASSETS = [
   '/Grocery.tracker/',
@@ -50,12 +50,30 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Cache-first for static assets (app shell, React, icons)
+  // Network-first for HTML — always try to get the freshest version
+  const isHTML = event.request.mode === 'navigate' ||
+    url.endsWith('/') || url.endsWith('/index.html') ||
+    url.endsWith('/Grocery.tracker/');
+  if (isHTML) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request) || caches.match('/Grocery.tracker/index.html'))
+    );
+    return;
+  }
+
+  // Cache-first for static assets (React, icons)
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(response => {
-        // Cache valid GET responses
         if (
           event.request.method === 'GET' &&
           response &&
@@ -67,7 +85,6 @@ self.addEventListener('fetch', event => {
         }
         return response;
       }).catch(() => {
-        // Offline fallback — return app shell
         if (event.request.mode === 'navigate') {
           return caches.match('/Grocery.tracker/index.html');
         }

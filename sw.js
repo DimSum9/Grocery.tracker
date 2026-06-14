@@ -1,4 +1,4 @@
-const CACHE_NAME = 'grocery-expense-tracker-v8';
+const CACHE_NAME = 'grocery-expense-tracker-v9';
 
 const STATIC_ASSETS = [
   '/Grocery.tracker/',

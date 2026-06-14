@@ -316,12 +316,14 @@ async function estimateGroceryTax(lat,lon){
 /* ── Tax / Location Picker ── */
 function TaxPick({t,state,rate,onSave,onClose}){
   const[st,setSt]=useState(state);
-  const[rt,setRt]=useState(rate);
+  const[rt,setRt]=useState(rate||0);
   const[detecting,setDetecting]=useState(false);
   const[detResult,setDetResult]=useState(null);
   const[detErr,setDetErr]=useState("");
-  const[manualRate,setManualRate]=useState(String(rate||""));
   const[showPad,setShowPad]=useState(false);
+  const[padVal,setPadVal]=useState("");
+
+  const EXEMPT_STATES_SET=new Set(["CA","CT","DE","FL","IA","IL","IN","KY","MA","MD","ME","MI","MN","MT","NH","NJ","NY","OH","OR","PA","RI","TX","VT","VA","WA","WI","WV","AK"]);
 
   const detect=async()=>{
     setDetecting(true);setDetErr("");setDetResult(null);
@@ -329,22 +331,23 @@ function TaxPick({t,state,rate,onSave,onClose}){
       const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000}));
       const result=await estimateGroceryTax(pos.coords.latitude,pos.coords.longitude);
       setDetResult(result);
-      setSt(result.state||st);
+      if(result.state) setSt(result.state);
       setRt(result.rate);
-      setManualRate(String(result.rate));
     }catch(e){setDetErr("Location unavailable. Please select your state manually.");}
     setDetecting(false);
   };
 
   const handleStateChange=e=>{
-    const s=e.target.value;setSt(s);
+    const s=e.target.value;
+    setSt(s);
     const r=EXEMPT_STATES_SET.has(s)?0:(GROCERY_TAX[s]||0);
-    setRt(r);setManualRate(String(r));setDetResult(null);
+    setRt(r);
+    setDetResult(null);
   };
 
-  const EXEMPT_STATES_SET=new Set(["CA","CT","DE","FL","IA","IL","IN","KY","MA","MD","ME","MI","MN","MT","NH","NJ","NY","OH","OR","PA","RI","TX","VT","VA","WA","WI","WV","AK"]);
-
-  if(showPad) return(<Pad t={t} label="Enter grocery tax rate (%)" value={manualRate} onChange={setManualRate} onDone={()=>{setRt(parseFloat(manualRate)||0);setShowPad(false);}} onCancel={()=>setShowPad(false)}/>);
+  if(showPad) return(<Pad t={t} label="Enter grocery tax rate (%)" value={padVal} onChange={setPadVal}
+    onDone={()=>{setRt(parseFloat(padVal)||0);setShowPad(false);setPadVal("");}}
+    onCancel={()=>{setShowPad(false);setPadVal("");}}/>);
 
   const is={width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none"};
 
@@ -353,12 +356,9 @@ function TaxPick({t,state,rate,onSave,onClose}){
       <div style={{width:"100%",maxWidth:380,maxHeight:"90vh",overflowY:"auto",borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
         <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}><h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>📍 Grocery Tax Location</h3></div>
         <div style={{padding:12}}>
-          {/* Auto-detect button */}
           <button onClick={detect} disabled={detecting} style={{width:"100%",padding:"12px 0",borderRadius:10,fontSize:13,fontWeight:600,border:"none",cursor:detecting?"not-allowed":"pointer",background:t.ac,color:t.act,marginBottom:10,opacity:detecting?0.7:1}}>
             {detecting?"⏳ Detecting location & tax rate...":"📡 Auto-Detect My Location"}
           </button>
-
-          {/* Detection result */}
           {detResult&&(
             <div style={{borderRadius:10,padding:10,marginBottom:10,background:t.bar,border:`1px solid ${t.cb}`}}>
               <p style={{fontSize:12,fontWeight:700,color:t.ac,marginBottom:4}}>📍 {detResult.city}{detResult.city?", ":""}{detResult.state} {detResult.zip}</p>
@@ -372,33 +372,26 @@ function TaxPick({t,state,rate,onSave,onClose}){
               </div>
             </div>
           )}
-
           {detErr&&<p style={{fontSize:12,color:"#ef4444",textAlign:"center",marginBottom:8}}>{detErr}</p>}
-
-          {/* Divider */}
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
             <div style={{flex:1,height:1,background:t.cb}}/><span style={{fontSize:11,color:t.tx2}}>or select manually</span><div style={{flex:1,height:1,background:t.cb}}/>
           </div>
-
-          {/* State selector */}
           <label style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,color:t.tx2,display:"block",marginBottom:4}}>State</label>
           <select value={st} onChange={handleStateChange} style={{...is,marginBottom:10}}>
             {STATES.map(s=><option key={s} value={s}>{STATE_NAMES[s]||s} — {EXEMPT_STATES_SET.has(s)?"Grocery Exempt":`${GROCERY_TAX[s]||0}%`}</option>)}
           </select>
-
-          {/* Manual rate override */}
           <label style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,color:t.tx2,display:"block",marginBottom:4}}>Grocery Tax Rate (%)</label>
-          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
-            <div onClick={()=>setShowPad(true)} style={{flex:1,padding:"8px 12px",borderRadius:8,border:`1px solid ${t.inb}`,background:t.inp,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:14,color:t.tx2,fontSize:12}}>Tap to override</span>
-              <span style={{fontSize:16,fontWeight:700,color:t.ac}}>{parseFloat(manualRate)===0?"Exempt":`${manualRate}%`}</span>
-            </div>
+          <div onClick={()=>{setPadVal(String(rt));setShowPad(true);}} style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${t.inb}`,background:t.inp,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{fontSize:12,color:t.tx2}}>Tap to override rate</span>
+            <span style={{fontSize:18,fontWeight:700,color:t.ac}}>{rt===0?"Exempt":`${rt}%`}</span>
           </div>
-          <p style={{fontSize:10,color:t.tx2,textAlign:"center"}}>⚠️ Tax estimate only. May vary by store, item type & local rules.</p>
+          <p style={{fontSize:10,color:t.tx2,textAlign:"center"}}>⚠️ Estimate only. May vary by store, item type & local rules.</p>
         </div>
         <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
           <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
-          <button onClick={()=>onSave(st,parseFloat(manualRate)||rt||0)} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Use {parseFloat(manualRate)||rt||0}%</button>
+          <button onClick={()=>{onSave(st,rt);onClose();}} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>
+            Use {rt===0?"Exempt":`${rt}%`}
+          </button>
         </div>
       </div>
     </div>

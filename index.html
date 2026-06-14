@@ -865,8 +865,134 @@ function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
   );
 }
 
+/* ── Scan Review Modal ── */
+function ScanReviewModal({t,initialName,initialCat,barcode,onSave,onCancel}){
+  const[name,setName]=useState(initialName||"");
+  const[cat,setCat]=useState(initialCat||"Other");
+  const[qty,setQty]=useState(1);
+  const[unitPrice,setUnitPrice]=useState("");
+  const[showCP,setShowCP]=useState(false);
+  const[showPad,setShowPad]=useState(false);
+  const total=(parseFloat(unitPrice)||0)*qty;
+
+  if(showCP)return(<CatPick t={t} onSelect={c=>{setCat(c);setShowCP(false);}} onClose={()=>setShowCP(false)}/>);
+  if(showPad)return(<Pad t={t} label="Unit Price" value={unitPrice} onChange={setUnitPrice} onDone={()=>setShowPad(false)} onCancel={()=>setShowPad(false)}/>);
+
+  const bs={border:"none",cursor:"pointer",fontWeight:600};
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}>
+          <h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>📦 Review Scanned Item</h3>
+          {barcode&&<p style={{fontSize:10,textAlign:"center",marginTop:4,color:t.tx2,fontFamily:"monospace"}}>{barcode}</p>}
+        </div>
+        <div style={{padding:12}}>
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>ITEM NAME</label>
+          <input value={name} onChange={e=>setName(e.target.value)} style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none",marginBottom:10}}/>
+
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>CATEGORY</label>
+          <button onClick={()=>setShowCP(true)} style={{...bs,width:"100%",padding:"8px 12px",borderRadius:8,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:10,background:t.bar,color:t.tx}}>{CAT_ICONS[cat]} {cat} <span style={{fontSize:10,color:t.tx2,marginLeft:4}}>▾</span></button>
+
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>QUANTITY</label>
+          <div style={{display:"flex",alignItems:"center",gap:0,borderRadius:8,overflow:"hidden",border:`1px solid ${t.cb}`,background:t.bar,marginBottom:10,width:"fit-content"}}>
+            <button onClick={()=>setQty(q=>Math.max(1,q-1))} style={{...bs,width:40,height:36,fontSize:18,background:"transparent",color:t.tx}}>−</button>
+            <span style={{minWidth:36,textAlign:"center",fontSize:16,fontWeight:700,color:t.tx}}>{qty}</span>
+            <button onClick={()=>setQty(q=>q+1)} style={{...bs,width:40,height:36,fontSize:18,background:"transparent",color:t.tx}}>+</button>
+          </div>
+
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>UNIT PRICE</label>
+          <div onClick={()=>setShowPad(true)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,border:`1px solid ${unitPrice?t.ac:t.inb}`,background:t.inp,cursor:"pointer",marginBottom:10}}>
+            <span style={{fontSize:13,color:unitPrice?t.tx:t.tx2}}>{unitPrice?`$${parseFloat(unitPrice).toFixed(2)}`:"Tap to enter"}</span>
+            <span style={{fontSize:14,color:t.ac}}>✏️</span>
+          </div>
+
+          {qty>1&&parseFloat(unitPrice)>0&&(
+            <div style={{borderRadius:8,padding:10,display:"flex",alignItems:"center",justifyContent:"space-between",background:t.bar,marginBottom:4}}>
+              <span style={{fontSize:12,color:t.tx2}}>{qty} × ${parseFloat(unitPrice).toFixed(2)}</span>
+              <span style={{fontWeight:700,fontSize:16,color:t.ac}}>${total.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+        <div style={{padding:12,display:"flex",gap:8,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onCancel} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>{if(name.trim())onSave({name:name.trim(),category:cat,qty,unitPrice:parseFloat(unitPrice)||0,total});}} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Add to List</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Edit Item Modal (for in-cart or any item) ── */
+function EditItemModal({t,item,onSave,onRemove,onClose}){
+  const[name,setName]=useState(item.name||"");
+  const[cat,setCat]=useState(item.originalCategory||item.category||"Other");
+  const[qty,setQty]=useState(item.qty||1);
+  const[unitPrice,setUnitPrice]=useState(item.qty>1&&item.price>0?String((item.price/item.qty).toFixed(2)):item.price>0?String(item.price):"");
+  const[showCP,setShowCP]=useState(false);
+  const[showPad,setShowPad]=useState(false);
+  const[confirmDel,setConfirmDel]=useState(false);
+  const total=(parseFloat(unitPrice)||0)*qty;
+
+  if(showCP)return(<CatPick t={t} onSelect={c=>{setCat(c);setShowCP(false);}} onClose={()=>setShowCP(false)}/>);
+  if(showPad)return(<Pad t={t} label="Unit Price" value={unitPrice} onChange={setUnitPrice} onDone={()=>setShowPad(false)} onCancel={()=>setShowPad(false)}/>);
+
+  const bs={border:"none",cursor:"pointer",fontWeight:600};
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:360,borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:12,borderBottom:`1px solid ${t.cb}`}}>
+          <h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>✏️ Edit Item</h3>
+        </div>
+        <div style={{padding:12}}>
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>ITEM NAME</label>
+          <input value={name} onChange={e=>setName(e.target.value)} style={{width:"100%",borderRadius:8,padding:"8px 10px",fontSize:14,border:`1px solid ${t.inb}`,background:t.inp,color:t.tx,outline:"none",marginBottom:10}}/>
+
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>CATEGORY</label>
+          <button onClick={()=>setShowCP(true)} style={{...bs,width:"100%",padding:"8px 12px",borderRadius:8,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:10,background:t.bar,color:t.tx}}>{CAT_ICONS[cat]} {cat} <span style={{fontSize:10,color:t.tx2,marginLeft:4}}>▾</span></button>
+
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>QUANTITY</label>
+          <div style={{display:"flex",alignItems:"center",gap:0,borderRadius:8,overflow:"hidden",border:`1px solid ${t.cb}`,background:t.bar,marginBottom:10,width:"fit-content"}}>
+            <button onClick={()=>setQty(q=>Math.max(1,q-1))} style={{...bs,width:40,height:36,fontSize:18,background:"transparent",color:t.tx}}>−</button>
+            <span style={{minWidth:36,textAlign:"center",fontSize:16,fontWeight:700,color:t.tx}}>{qty}</span>
+            <button onClick={()=>setQty(q=>q+1)} style={{...bs,width:40,height:36,fontSize:18,background:"transparent",color:t.tx}}>+</button>
+          </div>
+
+          <label style={{fontSize:11,fontWeight:600,color:t.tx2,display:"block",marginBottom:4}}>UNIT PRICE</label>
+          <div onClick={()=>setShowPad(true)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,border:`1px solid ${unitPrice?t.ac:t.inb}`,background:t.inp,cursor:"pointer",marginBottom:10}}>
+            <span style={{fontSize:13,color:unitPrice?t.tx:t.tx2}}>{unitPrice?`$${parseFloat(unitPrice).toFixed(2)}`:"Tap to enter"}</span>
+            <span style={{fontSize:14,color:t.ac}}>✏️</span>
+          </div>
+
+          {qty>1&&parseFloat(unitPrice)>0&&(
+            <div style={{borderRadius:8,padding:10,display:"flex",alignItems:"center",justifyContent:"space-between",background:t.bar,marginBottom:4}}>
+              <span style={{fontSize:12,color:t.tx2}}>{qty} × ${parseFloat(unitPrice).toFixed(2)}</span>
+              <span style={{fontWeight:700,fontSize:16,color:t.ac}}>${total.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+        <div style={{padding:12,borderTop:`1px solid ${t.cb}`}}>
+          {confirmDel?(
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setConfirmDel(false)} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:13,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Keep</button>
+              <button onClick={onRemove} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:13,border:"none",background:"#ef4444",color:"#fff",cursor:"pointer"}}>Yes, Remove</button>
+            </div>
+          ):(
+            <div>
+              <div style={{display:"flex",gap:8,marginBottom:8}}>
+                <button onClick={onClose} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.bar,color:t.tx2,cursor:"pointer"}}>Cancel</button>
+                <button onClick={()=>{if(name.trim())onSave({name:name.trim(),originalCategory:cat,qty,price:total,pm:"fixed",up:parseFloat(unitPrice)||0,wt:0,wu:"lb"});}} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Save</button>
+              </div>
+              <button onClick={()=>setConfirmDel(true)} style={{width:"100%",padding:"8px 0",borderRadius:8,fontWeight:600,fontSize:12,border:"1px solid #ef444440",background:"#ef444410",color:"#ef4444",cursor:"pointer"}}>🗑️ Remove Item</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Draggable Category List ── */
-function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk,togChk,setPei,setEcf,rmItem,IN_CART_CAT}){
+function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk,togChk,setPei,setEcf,rmItem,IN_CART_CAT,setEditingItem}){
   const rowRefs=useRef({});
   const handleRefs=useRef({});
   const dragState=useRef({});
@@ -1029,9 +1155,19 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
         {isInCart&&item.originalCategory&&<p style={{fontSize:10,color:t.tx2}}>{CAT_ICONS[item.originalCategory]} {item.originalCategory}</p>}
         {item.pm==="weight"&&item.up>0&&<p style={{fontSize:11,color:t.tx2}}>~{item.wt} {item.wu} @ ${item.up}/{item.wu}</p>}
       </div>
-      <button onClick={()=>setPei(item)} style={{...bs,fontSize:12,fontWeight:700,marginRight:8,padding:"2px 6px",borderRadius:4,background:"transparent",color:item.price>0?t.ac:t.tx2}}>{item.price>0?`$${item.price.toFixed(2)}`:"$0.00"}</button>
-      {!isInCart&&<button onClick={()=>setEcf(item.id)} style={{...bs,fontSize:14,marginRight:4,background:"transparent"}}>{CAT_ICONS[item.originalCategory||item.category]||"📦"}</button>}
-      <button onClick={()=>rmItem(item.id)} style={{...bs,fontSize:16,background:"transparent",color:"#ef4444"}}>×</button>
+      {isInCart?(
+        <React.Fragment>
+          <span style={{fontSize:12,fontWeight:700,marginRight:6,color:t.ac}}>${item.price>0?item.price.toFixed(2):"0.00"}</span>
+          <button onClick={()=>setEditingItem(item)} style={{...bs,fontSize:13,marginRight:4,padding:"2px 6px",borderRadius:4,background:t.bar,color:t.tx2}}>✏️</button>
+          <button onClick={()=>rmItem(item.id)} style={{...bs,fontSize:16,background:"transparent",color:"#ef4444"}}>×</button>
+        </React.Fragment>
+      ):(
+        <React.Fragment>
+          <button onClick={()=>setPei(item)} style={{...bs,fontSize:12,fontWeight:700,marginRight:8,padding:"2px 6px",borderRadius:4,background:"transparent",color:item.price>0?t.ac:t.tx2}}>{item.price>0?`$${item.price.toFixed(2)}`:"$0.00"}</button>
+          <button onClick={()=>setEcf(item.id)} style={{...bs,fontSize:14,marginRight:4,background:"transparent"}}>{CAT_ICONS[item.originalCategory||item.category]||"📦"}</button>
+          <button onClick={()=>rmItem(item.id)} style={{...bs,fontSize:16,background:"transparent",color:"#ef4444"}}>×</button>
+        </React.Fragment>
+      )}
     </div>
   );
 
@@ -1083,7 +1219,6 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
             <span style={{fontSize:11,padding:"0 6px",borderRadius:10,background:t.bar,color:t.tx2}}>{grouped[cat].length}</span>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:12,fontWeight:700,color:t.ac}}>${grouped[cat].reduce((s,i)=>s+i.price,0).toFixed(2)}</span>
             <span style={{fontSize:11,color:t.tx2}}>{col[cat]?"▸":"▾"}</span>
           </div>
         </div>
@@ -1113,7 +1248,7 @@ function DraggableCategoryList({t,grouped,categoryOrder,onReorder,col,setCol,chk
 
       {inCartItems.length>0&&(
         <div style={{marginBottom:8,marginTop:4}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:"8px 8px 0 0",padding:"8px 12px",userSelect:"none",background:"linear-gradient(90deg,#16a34a20,#16a34a10)",border:`1px solid #16a34a40`,borderBottom:"none"}}>
+          <div onClick={()=>setCol(p=>({...p,[IN_CART_CAT]:!p[IN_CART_CAT]}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:"8px 8px 0 0",padding:"8px 12px",cursor:"pointer",userSelect:"none",background:"linear-gradient(90deg,#16a34a20,#16a34a10)",border:`1px solid #16a34a40`,borderBottom:"none"}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:14}}>🛒</span>
               <span style={{fontSize:12,fontWeight:700,color:"#16a34a"}}>In the Cart</span>
@@ -1159,6 +1294,8 @@ function App(){
   const[chk,setChk]=useState(new Set());
   const[pei,setPei]=useState(null);
   const[nq,setNq]=useState(1);
+  const[scanReview,setScanReview]=useState(null); // {name, category, barcode}
+  const[editingItem,setEditingItem]=useState(null); // item to edit
   const idR=useRef(Date.now());
 
   const t=THEMES[tid]||THEMES.mint;
@@ -1190,7 +1327,7 @@ function App(){
 
   const hScan=async code=>{
     setShowScan(false);
-    if(bcDB[code]){const e=bcDB[code];addItem(e.name,e.category||"Other",true);return;}
+    if(bcDB[code]){const e=bcDB[code];setScanReview({name:e.name,category:e.category||"Other",barcode:code});return;}
     setScanLoading(true);
     try{
       const ctrl=new AbortController();
@@ -1215,7 +1352,7 @@ function App(){
           else if(cats.includes("cleaning")||cats.includes("household"))cat="Household";
           saveBcDB({...bcDB,[code]:{name,category:cat}});
           setScanLoading(false);
-          addItem(name,cat,true);
+          setScanReview({name,category:cat,barcode:code});
           return;
         }
       }
@@ -1224,9 +1361,33 @@ function App(){
     setPendingBC(code);
   };
 
-  const hPendingSave=(name,cat)=>{saveBcDB({...bcDB,[pendingBC]:{name,category:cat}});addItem(name,cat,true);setPendingBC(null);};
+  const hScanReviewSave=(data)=>{
+    const{name,category,qty,unitPrice,total}=data;
+    const id=idR.current++;
+    const key=name.trim().toLowerCase();
+    sIcm({...icm,[key]:category});
+    if(scanReview.barcode)saveBcDB({...bcDB,[scanReview.barcode]:{name,category}});
+    const price=total||0;
+    const cat=price>0?IN_CART_CAT:category;
+    const item={id,name,category:cat,originalCategory:category,price,pm:"fixed",up:unitPrice,wt:0,wu:"lb",qty:qty||1};
+    setItems(p=>[...p,item]);
+    setScanReview(null);
+  };
+
+  const hPendingSave=(name,cat)=>{saveBcDB({...bcDB,[pendingBC]:{name,category:cat}});setScanReview({name,category:cat,barcode:pendingBC});setPendingBC(null);};
   const rmItem=id=>setItems(p=>p.filter(i=>i.id!==id));
   const togChk=id=>setChk(p=>{const s=new Set(p);s.has(id)?s.delete(id):s.add(id);return s;});
+
+  const hEditItemSave=(id,data)=>{
+    setItems(p=>p.map(i=>{
+      if(i.id!==id)return i;
+      const newCat=data.originalCategory;
+      const newPrice=data.price||0;
+      const inCart=newPrice>0?IN_CART_CAT:newCat;
+      return{...i,...data,category:inCart,originalCategory:newCat};
+    }));
+    setEditingItem(null);
+  };
   const hPrice=data=>{
     const id=pei.id;
     setItems(p=>p.map(i=>{
@@ -1325,7 +1486,7 @@ function App(){
             t={t} grouped={grouped} categoryOrder={categoryOrder}
             onReorder={saveCatOrder} col={col} setCol={setCol}
             chk={chk} togChk={togChk} setPei={setPei} setEcf={setEcf} rmItem={rmItem}
-            IN_CART_CAT={IN_CART_CAT}
+            IN_CART_CAT={IN_CART_CAT} setEditingItem={setEditingItem}
           />
 
           {items.length>0&&(
@@ -1343,6 +1504,8 @@ function App(){
       )}
 
       {scanLoading&&<LoadingOverlay t={t} msg="Looking up product..."/>}
+      {scanReview&&<ScanReviewModal t={t} initialName={scanReview.name} initialCat={scanReview.category} barcode={scanReview.barcode} onSave={hScanReviewSave} onCancel={()=>setScanReview(null)}/>}
+      {editingItem&&<EditItemModal t={t} item={editingItem} onSave={data=>hEditItemSave(editingItem.id,data)} onRemove={()=>{rmItem(editingItem.id);setEditingItem(null);}} onClose={()=>setEditingItem(null)}/>}
       {pei&&<PriceModal t={t} item={pei} onSave={hPrice} onCancel={()=>setPei(null)}/>}
       {showCP==="new"&&<CatPick t={t} onSelect={c=>{setNc(c);setShowCP(null);}} onClose={()=>setShowCP(null)}/>}
       {ecf!==null&&<CatPick t={t} onSelect={c=>{const it=items.find(i=>i.id===ecf);if(it)sIcm({...icm,[it.name.trim().toLowerCase()]:c});setItems(p=>p.map(i=>i.id===ecf?{...i,category:i.price>0?IN_CART_CAT:c,originalCategory:c}:i));setEcf(null);}} onClose={()=>setEcf(null)}/>}

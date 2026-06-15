@@ -865,6 +865,50 @@ function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
   );
 }
 
+/* ── Recent Purchase Alert ── */
+function RecentPurchaseAlert({t,itemName,purchases,onClose}){
+  // purchases: array of {date, store, price} sorted most recent first
+  const fmtDate=d=>{
+    const dd=new Date(d);
+    const now=new Date();
+    const days=Math.floor((now-dd)/(1000*60*60*24));
+    const dateStr=dd.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+    if(days===0)return`${dateStr} (today)`;
+    if(days===1)return`${dateStr} (yesterday)`;
+    return`${dateStr} (${days} days ago)`;
+  };
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.5)"}}>
+      <div style={{width:"100%",maxWidth:340,borderRadius:16,background:t.card,border:`1px solid ${t.cb}`,boxShadow:t.sh}}>
+        <div style={{padding:14,borderBottom:`1px solid ${t.cb}`}}>
+          <p style={{fontSize:28,textAlign:"center",marginBottom:4}}>⏱️</p>
+          <h3 style={{fontWeight:700,textAlign:"center",fontSize:14,color:t.tx}}>Recently Purchased</h3>
+        </div>
+        <div style={{padding:14}}>
+          <p style={{fontSize:13,color:t.tx,marginBottom:10,textAlign:"center"}}>
+            You bought <strong style={{color:t.ac}}>{itemName}</strong> within the last 30 days:
+          </p>
+          <div style={{maxHeight:200,overflowY:"auto"}}>
+            {purchases.slice(0,5).map((p,i)=>(
+              <div key={i} style={{padding:"8px 10px",borderRadius:8,background:t.bar,marginBottom:6}}>
+                <p style={{fontSize:12,fontWeight:600,color:t.tx}}>{fmtDate(p.date)}</p>
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
+                  <span style={{fontSize:11,color:t.tx2}}>{p.store||"Grocery Trip"}</span>
+                  {p.price>0&&<span style={{fontSize:11,fontWeight:700,color:t.ac}}>${p.price.toFixed(2)}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {purchases.length>5&&<p style={{fontSize:10,color:t.tx2,textAlign:"center",marginTop:6}}>+{purchases.length-5} more</p>}
+        </div>
+        <div style={{padding:12,borderTop:`1px solid ${t.cb}`}}>
+          <button onClick={onClose} style={{width:"100%",padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:t.ac,color:t.act,cursor:"pointer"}}>Got it</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Scan Review Modal ── */
 function ScanReviewModal({t,initialName,initialCat,barcode,onSave,onCancel}){
   const[name,setName]=useState(initialName||"");
@@ -1296,6 +1340,7 @@ function App(){
   const[nq,setNq]=useState(1);
   const[scanReview,setScanReview]=useState(null); // {name, category, barcode}
   const[editingItem,setEditingItem]=useState(null); // item to edit
+  const[recentAlert,setRecentAlert]=useState(null); // {itemName, purchases}
   const idR=useRef(Date.now());
 
   const t=THEMES[tid]||THEMES.mint;
@@ -1309,6 +1354,40 @@ function App(){
   const hTax=(st,rt)=>{setTst(st);setTrate(rt);LS.set("g_loc_st",st);LS.set("g_loc_rt",rt);};
   const hGoals=(tb,per)=>{setTotalBudget(tb);setBudgetPeriod(per);LS.set("g_bgt",{tb,per});};
 
+  // Check if this item was purchased in last 30 days (by name match, case-insensitive, or barcode)
+  // Excludes Produce category. Returns array of {date, store, price} sorted most recent first, or null.
+  const checkRecentPurchase=(name,category,barcode)=>{
+    if(category==="Produce")return null;
+    const nameLc=name.trim().toLowerCase();
+    if(!nameLc)return null;
+    const cutoff=Date.now()-(30*24*60*60*1000);
+    const matches=[];
+    trips.forEach(tr=>{
+      const trDate=new Date(tr.date).getTime();
+      if(trDate<cutoff)return;
+      // Barcode match (if item has barcode property stored)
+      if(barcode&&tr.items?.some(it=>it.barcode===barcode)){
+        const found=tr.items.find(it=>it.barcode===barcode);
+        matches.push({date:tr.date,store:tr.store,price:found?.price||0});
+        return;
+      }
+      // Name match (case-insensitive, exact match — also try contains for slight variations)
+      const named=tr.items?.find(it=>{
+        if(!it.name)return false;
+        const itLc=it.name.trim().toLowerCase();
+        return itLc===nameLc;
+      });
+      if(named){
+        // Skip if matched item was Produce
+        if(named.category==="Produce")return;
+        matches.push({date:tr.date,store:tr.store,price:named.price||0});
+      }
+    });
+    if(matches.length===0)return null;
+    matches.sort((a,b)=>new Date(b.date)-new Date(a.date));
+    return matches;
+  };
+
   const addItem=(name,cat="Other",openPad=false,qty=1)=>{
     const id=idR.current++;
     const key=name.trim().toLowerCase();
@@ -1317,6 +1396,9 @@ function App(){
     setItems(p=>[...p,item]);
     setNn("");setNc("Other");setNq(1);setShowAdd(false);
     if(openPad)setPei(item);
+    // Check if recently purchased
+    const recent=checkRecentPurchase(name,rc,null);
+    if(recent)setRecentAlert({itemName:name,purchases:recent});
   };
 
   const handleSelectSuggestion=name=>{
@@ -1369,9 +1451,12 @@ function App(){
     if(scanReview.barcode)saveBcDB({...bcDB,[scanReview.barcode]:{name,category}});
     const price=total||0;
     const cat=price>0?IN_CART_CAT:category;
-    const item={id,name,category:cat,originalCategory:category,price,pm:"fixed",up:unitPrice,wt:0,wu:"lb",qty:qty||1};
+    const item={id,name,category:cat,originalCategory:category,price,pm:"fixed",up:unitPrice,wt:0,wu:"lb",qty:qty||1,barcode:scanReview.barcode||null};
     setItems(p=>[...p,item]);
+    // Check if recently purchased (matches by barcode or by name, excluding produce)
+    const recent=checkRecentPurchase(name,category,scanReview.barcode);
     setScanReview(null);
+    if(recent)setRecentAlert({itemName:name,purchases:recent});
   };
 
   const hPendingSave=(name,cat)=>{saveBcDB({...bcDB,[pendingBC]:{name,category:cat}});setScanReview({name,category:cat,barcode:pendingBC});setPendingBC(null);};
@@ -1404,7 +1489,7 @@ function App(){
     const unpriced=items.filter(i=>i.price===0);
     const sub=priced.reduce((s,i)=>s+i.price,0);
     const tx=sub*trate/100;
-    const trip={date:new Date().toISOString(),store,items:priced.map(i=>({name:i.name,category:i.originalCategory||i.category,price:i.price})),subtotal:sub,tax:tx,total:sub+tx,location:tst};
+    const trip={date:new Date().toISOString(),store,items:priced.map(i=>({name:i.name,category:i.originalCategory||i.category,price:i.price,barcode:i.barcode||null})),subtotal:sub,tax:tx,total:sub+tx,location:tst};
     const upd=[...trips,trip];
     setTrips(upd);LS.set("g_trips",upd);
     const mem={...icm};
@@ -1504,6 +1589,7 @@ function App(){
       )}
 
       {scanLoading&&<LoadingOverlay t={t} msg="Looking up product..."/>}
+      {recentAlert&&<RecentPurchaseAlert t={t} itemName={recentAlert.itemName} purchases={recentAlert.purchases} onClose={()=>setRecentAlert(null)}/>}
       {scanReview&&<ScanReviewModal t={t} initialName={scanReview.name} initialCat={scanReview.category} barcode={scanReview.barcode} onSave={hScanReviewSave} onCancel={()=>setScanReview(null)}/>}
       {editingItem&&<EditItemModal t={t} item={editingItem} onSave={data=>hEditItemSave(editingItem.id,data)} onRemove={()=>{rmItem(editingItem.id);setEditingItem(null);}} onClose={()=>setEditingItem(null)}/>}
       {pei&&<PriceModal t={t} item={pei} onSave={hPrice} onCancel={()=>setPei(null)}/>}

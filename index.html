@@ -195,14 +195,17 @@ function SmartInput({t,value,onChange,onSelect,icm,bcDB}){
   );
 }
 
-/* ── Scanner with flashlight ── */
-function Scanner({onResult,onClose}){
+/* ── Scanner with flashlight + manual fallbacks ── */
+function Scanner({onResult,onManual,onClose}){
   const vr=useRef(null),sr=useRef(null),tr=useRef(null);
   const[err,setErr]=useState(null);
   const[torch,setTorch]=useState(false);
   const[torchAvail,setTorchAvail]=useState(false);
+  const[hint,setHint]=useState(false);   // surface fallbacks after a few seconds of no detection
+  const[typing,setTyping]=useState(false);
+  const[bc,setBc]=useState("");
   useEffect(()=>{
-    let c=false,iv;
+    let c=false,iv,hintTimer;
     (async()=>{
       try{
         const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
@@ -213,19 +216,39 @@ function Scanner({onResult,onClose}){
         const caps=track.getCapabilities?.();
         if(caps&&caps.torch)setTorchAvail(true);
         if(vr.current){vr.current.srcObject=s;vr.current.play();}
+        let d=null;
         if("BarcodeDetector" in window){
-          const d=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","qr_code"]});
-          iv=setInterval(async()=>{if(vr.current?.readyState>=2){try{const b=await d.detect(vr.current);if(b.length){clearInterval(iv);onResult(b[0].rawValue);}}catch{}}},500);
-        }else setErr("BarcodeDetector not supported. Use Chrome on Android.");
-      }catch{setErr("Camera access denied.");}
+          // Some engines reject an unknown format in the list — fall back to defaults.
+          try{d=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","codabar","itf","qr_code"]});}
+          catch{try{d=new BarcodeDetector();}catch{}}
+        }
+        if(d){
+          iv=setInterval(async()=>{if(vr.current?.readyState>=2){try{const b=await d.detect(vr.current);if(b.length){clearInterval(iv);onResult(b[0].rawValue);}}catch{}}},300);
+          hintTimer=setTimeout(()=>setHint(true),6000);
+        }else setErr("This browser can't auto-scan barcodes. Type the number or add the item manually below.");
+      }catch{setErr("Camera unavailable. Type the barcode number or add the item manually below.");}
     })();
-    return()=>{c=true;if(iv)clearInterval(iv);sr.current?.getTracks().forEach(t=>t.stop());};
+    return()=>{c=true;if(iv)clearInterval(iv);if(hintTimer)clearTimeout(hintTimer);sr.current?.getTracks().forEach(t=>t.stop());};
   },[]);
+  const stop=()=>sr.current?.getTracks().forEach(t=>t.stop());
   const toggleTorch=async()=>{if(!tr.current)return;try{await tr.current.applyConstraints({advanced:[{torch:!torch}]});setTorch(!torch);}catch{}};
-  const cl=()=>{sr.current?.getTracks().forEach(t=>t.stop());onClose();};
+  const cl=()=>{stop();onClose();};
+  const manual=()=>{stop();onManual();};
+  const submitBc=()=>{const v=bc.replace(/\s/g,"");if(v){stop();onResult(v);}};
+  const fb={padding:"8px 16px",borderRadius:8,fontWeight:600,border:"none",cursor:"pointer",fontSize:13,background:"rgba(255,255,255,0.2)",color:"#fff"};
   return(
-    <div style={{position:"fixed",inset:0,zIndex:50,background:"#000",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-      {err?<div style={{color:"#fff",textAlign:"center",padding:24}}><p style={{marginBottom:16}}>{err}</p><button onClick={cl} style={{padding:"8px 20px",background:"#fff",color:"#000",borderRadius:8,fontWeight:600,border:"none",cursor:"pointer"}}>Close</button></div>:
+    <div style={{position:"fixed",inset:0,zIndex:50,background:"#000",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16}}>
+      {err?(
+        <div style={{color:"#fff",textAlign:"center",padding:24,maxWidth:340}}>
+          <p style={{fontSize:32,marginBottom:8}}>📷</p>
+          <p style={{marginBottom:16,fontSize:13,lineHeight:1.5}}>{err}</p>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <button onClick={()=>setTyping(true)} style={{...fb,background:"#fff",color:"#000"}}>⌨️ Type barcode number</button>
+            <button onClick={manual} style={fb}>✏️ Add item manually</button>
+            <button onClick={cl} style={{...fb,background:"transparent",border:"1px solid rgba(255,255,255,0.4)"}}>Cancel</button>
+          </div>
+        </div>
+      ):(
       <React.Fragment>
         <div style={{position:"relative",width:"100%",maxWidth:400,aspectRatio:"4/3"}}>
           <video ref={vr} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:12}} playsInline muted/>
@@ -234,11 +257,29 @@ function Scanner({onResult,onClose}){
           </div>
         </div>
         <p style={{color:"#fff",marginTop:12,fontSize:12}}>Point camera at barcode</p>
+        {hint&&<p style={{color:"#fbbf24",marginTop:6,fontSize:11,textAlign:"center",maxWidth:300}}>Not scanning? Type the number or add it manually below.</p>}
         <div style={{display:"flex",gap:12,marginTop:12}}>
-          {torchAvail&&<button onClick={toggleTorch} style={{padding:"8px 20px",background:torch?"#fbbf24":"rgba(255,255,255,0.2)",color:torch?"#000":"#fff",borderRadius:8,fontWeight:600,border:"none",cursor:"pointer",fontSize:14}}>{torch?"🔦 ON":"🔦 OFF"}</button>}
-          <button onClick={cl} style={{padding:"8px 20px",background:"#fff",color:"#000",borderRadius:8,fontWeight:600,border:"none",cursor:"pointer"}}>Cancel</button>
+          {torchAvail&&<button onClick={toggleTorch} style={{...fb,background:torch?"#fbbf24":"rgba(255,255,255,0.2)",color:torch?"#000":"#fff"}}>{torch?"🔦 ON":"🔦 OFF"}</button>}
+          <button onClick={cl} style={{...fb,background:"#fff",color:"#000"}}>Cancel</button>
         </div>
-      </React.Fragment>}
+        <div style={{display:"flex",gap:12,marginTop:10}}>
+          <button onClick={()=>setTyping(true)} style={fb}>⌨️ Type barcode</button>
+          <button onClick={manual} style={fb}>✏️ Add manually</button>
+        </div>
+      </React.Fragment>)}
+      {typing&&(
+        <div style={{position:"fixed",inset:0,zIndex:55,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{width:"100%",maxWidth:320,borderRadius:16,background:"#fff",padding:16}}>
+            <h3 style={{fontWeight:700,fontSize:14,marginBottom:4,textAlign:"center",color:"#111"}}>Enter barcode number</h3>
+            <p style={{fontSize:11,textAlign:"center",color:"#666",marginBottom:10}}>Read the digits printed under the bars.</p>
+            <input value={bc} onChange={e=>setBc(e.target.value)} inputMode="numeric" autoFocus placeholder="e.g. 012345678905" style={{width:"100%",borderRadius:8,padding:"10px 12px",fontSize:16,border:"1px solid #ccc",outline:"none",marginBottom:12,color:"#111"}}/>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{setTyping(false);setBc("");}} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:"#eee",color:"#333",cursor:"pointer"}}>Cancel</button>
+              <button onClick={submitBc} style={{flex:1,padding:"10px 0",borderRadius:8,fontWeight:600,fontSize:14,border:"none",background:"#16a34a",color:"#fff",cursor:"pointer"}}>Look up</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1506,6 +1547,16 @@ function App(){
   const sThm=id=>{setTid(id);LS.set("g_theme",id);};
   const sIcm=m=>{setIcm(m);LS.set("g_icm",m);};
   const saveBcDB=db=>{setBcDB(db);LS.set("g_bcdb",db);};
+  // Normalize a barcode so the same product matches across formats: a numeric
+  // GTIN is compared without leading zeros (UPC-A 12-digit == EAN-13 with a
+  // leading 0); non-numeric codes (Code 128/39 etc.) are matched exactly.
+  const bcKey=code=>{const s=String(code||"").trim();return /^\d+$/.test(s)?(s.replace(/^0+/,"")||"0"):s;};
+  const findBC=code=>{
+    if(bcDB[code])return bcDB[code];
+    const k=bcKey(code);
+    for(const key in bcDB){if(bcKey(key)===k)return bcDB[key];}
+    return null;
+  };
   // Remember an item by name so re-adding it recalls category & last price even
   // when there's no barcode. Only overwrites a remembered price when given a real one.
   const rememberItem=(name,info={})=>{
@@ -1588,7 +1639,8 @@ function App(){
 
   const hScan=async code=>{
     setShowScan(false);
-    if(bcDB[code]){const e=bcDB[code];setScanReview({name:e.name,category:e.category||"Other",barcode:code});return;}
+    const known=findBC(code);
+    if(known){setScanReview({name:known.name,category:known.category||"Other",barcode:code});return;}
     setScanLoading(true);
     try{
       const ctrl=new AbortController();
@@ -1788,7 +1840,7 @@ function App(){
       {pei&&<PriceModal t={t} item={pei} mem={recall(pei.name)} onSave={hPrice} onCancel={()=>setPei(null)}/>}
       {showCP==="new"&&<CatPick t={t} onSelect={c=>{setNc(c);setShowCP(null);}} onClose={()=>setShowCP(null)}/>}
       {ecf!==null&&<CatPick t={t} onSelect={c=>{const it=items.find(i=>i.id===ecf);if(it){sIcm({...icm,[it.name.trim().toLowerCase()]:c});rememberItem(it.name,{cat:c});}setItems(p=>p.map(i=>i.id===ecf?{...i,category:i.price>0?IN_CART_CAT:c,originalCategory:c}:i));setEcf(null);}} onClose={()=>setEcf(null)}/>}
-      {showScan&&<Scanner onResult={hScan} onClose={()=>setShowScan(false)}/>}
+      {showScan&&<Scanner onResult={hScan} onManual={()=>{setShowScan(false);setTab("list");setNn("");setNc("Other");setNq(1);setShowAdd(true);}} onClose={()=>setShowScan(false)}/>}
       {pendingBC&&<BarcodeNameModal t={t} barcode={pendingBC} onSave={hPendingSave} onCancel={()=>setPendingBC(null)}/>}
       {showTax&&<TaxPick t={t} state={tst} rate={trate} onSave={hTax} onClose={()=>setShowTax(false)}/>}
       {showTrip&&<TripModal t={t} items={items} tst={tst} trate={trate} onDone={hComplete} onClose={()=>setShowTrip(false)}/>}

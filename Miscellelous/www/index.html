@@ -787,7 +787,7 @@ function ReceiptScanner({t,onCapture,onClose}){
   const[ocrPct,setOcrPct]=useState(0);
   const[showPad,setShowPad]=useState(false);
   const[padVal,setPadVal]=useState("");
-  const fileRef=useRef(null);
+  const camRef=useRef(null),upRef=useRef(null);
 
   const handleFile=async(e)=>{
     const file=e.target.files[0];
@@ -822,10 +822,13 @@ function ReceiptScanner({t,onCapture,onClose}){
         <div style={{padding:12}}>
           {!preview?(
             <div>
-              <div onClick={()=>fileRef.current?.click()} style={{padding:"32px 0",borderRadius:12,border:`2px dashed ${t.cb}`,display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",marginBottom:8}}>
+              <div style={{padding:"24px 0",borderRadius:12,border:`2px dashed ${t.cb}`,display:"flex",flexDirection:"column",alignItems:"center",marginBottom:8}}>
                 <span style={{fontSize:40}}>📸</span>
-                <span style={{fontSize:13,fontWeight:600,color:t.tx,marginTop:8}}>Tap to take or upload photo</span>
-                <span style={{fontSize:11,color:t.tx2,marginTop:4}}>of your grocery receipt</span>
+                <span style={{fontSize:13,fontWeight:600,color:t.tx,marginTop:8}}>Add your grocery receipt</span>
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={()=>camRef.current?.click()} style={{padding:"10px 16px",borderRadius:8,border:"none",fontWeight:600,fontSize:13,background:t.ac,color:t.act,cursor:"pointer"}}>📷 Take Photo</button>
+                  <button onClick={()=>upRef.current?.click()} style={{padding:"10px 16px",borderRadius:8,fontWeight:600,fontSize:13,border:`1px solid ${t.cb}`,background:t.bar,color:t.tx,cursor:"pointer"}}>🖼️ Upload</button>
+                </div>
               </div>
               <div style={{padding:"8px 10px",borderRadius:8,background:t.bar}}>
                 <p style={{fontSize:11,color:t.tx2}}>💡 For best results: lay receipt flat, ensure good lighting, and keep text in frame. Auto-detection works best on Chrome for Android.</p>
@@ -848,7 +851,8 @@ function ReceiptScanner({t,onCapture,onClose}){
               ):null}
             </div>
           )}
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{display:"none"}}/>
+          <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{display:"none"}}/>
+          <input ref={upRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
 
           {preview&&!parsing&&(
             <div style={{marginTop:8}}>
@@ -933,7 +937,7 @@ function daysRemaining(){const{end}=getMonthBounds();return Math.max(0,(end-new 
 function weeksRemaining(){return daysRemaining()/7;}
 
 /* ── Spending View ── */
-function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
+function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,budgetStart,onSetBudget}){
   const[period,setPeriod]=useState("monthly");
   const[showBM,setShowBM]=useState(false);
   const[showRS,setShowRS]=useState(false);
@@ -952,13 +956,27 @@ function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
   const{daysInMonth}=getMonthBounds();
   const weeksInMonth=daysInMonth/7;
   const monthBudget=budgetPeriod==="weekly"?totalBudget*weeksInMonth:totalBudget;
-  const weekBudget=budgetPeriod==="monthly"?totalBudget/weeksInMonth:totalBudget;
   const monthSpent=useMemo(()=>trips.filter(tr=>{const d=new Date(tr.date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();}).reduce((s,tr)=>s+tr.total,0),[trips]);
   const remaining=Math.max(0,monthBudget-monthSpent);
   const over=monthSpent>monthBudget;
-  // Remaining balance (budget − spent) spread evenly over the month's weeks.
-  // No surplus bonus, so it never suggests more than what's actually left.
-  const weeklyAvailRemaining=weeksInMonth>0?remaining/weeksInMonth:0;
+  // ── Prorate the monthly budget from the day it was entered ──
+  // The budget covers only the remaining days of the month, INCLUSIVE of the
+  // start day. Uses the real calendar month length and the actual remaining
+  // days — never a fixed 4.3 weeks / 30 days. A budget carried over from a
+  // previous month applies to the whole current month (start = the 1st).
+  //   daysRemaining = (lastDayOfMonth - budgetStartDate) + 1
+  //   dailyBudget   = monthBudget / daysRemaining
+  //   weekly        = dailyBudget * 7
+  let startDay=1;
+  if(budgetPeriod==="monthly"&&budgetStart){
+    const bs=new Date(budgetStart+"T00:00:00");
+    if(!isNaN(bs)&&bs.getFullYear()===now.getFullYear()&&bs.getMonth()===now.getMonth())startDay=bs.getDate();
+  }
+  const daysRemaining=Math.max(1,daysInMonth-startDay+1);
+  const dailyBudget=daysRemaining>0?monthBudget/daysRemaining:0;
+  const weekBudget=budgetPeriod==="weekly"?totalBudget:dailyBudget*7;
+  const dailyAvailRemaining=daysRemaining>0?remaining/daysRemaining:0;
+  const weeklyAvailRemaining=dailyAvailRemaining*7;
   const pct=monthBudget>0?Math.min((monthSpent/monthBudget)*100,100):0;
 
   const handleReceiptCapture=({store,total,date})=>{
@@ -1023,12 +1041,12 @@ function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,onSetBudget}){
             <div style={{background:t.bar,borderRadius:8,padding:8,textAlign:"center"}}>
               <p style={{fontSize:10,color:t.tx2,marginBottom:2}}>Avg week budget</p>
               <p style={{fontSize:16,fontWeight:700,color:t.ac}}>${weekBudget.toFixed(2)}</p>
-              <p style={{fontSize:9,color:t.tx2}}>{weeksInMonth.toFixed(1)} wks/mo</p>
+              <p style={{fontSize:9,color:t.tx2}}>${dailyBudget.toFixed(2)}/day</p>
             </div>
             <div style={{background:t.bar,borderRadius:8,padding:8,textAlign:"center"}}>
               <p style={{fontSize:10,color:t.tx2,marginBottom:2}}>Avail/wk remaining</p>
               <p style={{fontSize:16,fontWeight:700,color:weeklyAvailRemaining<weekBudget*0.5?"#ef4444":t.ac}}>${weeklyAvailRemaining.toFixed(2)}</p>
-              <p style={{fontSize:9,color:t.tx2}}>{weeksInMonth.toFixed(1)} wks/mo</p>
+              <p style={{fontSize:9,color:t.tx2}}>${dailyAvailRemaining.toFixed(2)}/day</p>
             </div>
           </div>
         </div>
@@ -1514,6 +1532,7 @@ function App(){
   const bgt=LS.get("g_bgt")||{};
   const[totalBudget,setTotalBudget]=useState(()=>bgt.tb||0);
   const[budgetPeriod,setBudgetPeriod]=useState(()=>bgt.per||"monthly");
+  const[budgetStart,setBudgetStart]=useState(()=>bgt.start||null); // date the budget was entered (for proration)
   const[icm,setIcm]=useState(()=>LS.get("g_icm")||{});
   const[bcDB,setBcDB]=useState(()=>LS.get("g_bcdb")||{});
   const[imem,setImem]=useState(()=>LS.get("g_imem")||{}); // name(lc) -> {cat,price,up,pm,wt,wu}
@@ -1576,7 +1595,7 @@ function App(){
   };
   const recall=name=>imem[(name||"").trim().toLowerCase()]||null;
   const hTax=(st,rt)=>{setTst(st);setTrate(rt);LS.set("g_loc_st",st);LS.set("g_loc_rt",rt);};
-  const hGoals=(tb,per)=>{setTotalBudget(tb);setBudgetPeriod(per);LS.set("g_bgt",{tb,per});};
+  const hGoals=(tb,per)=>{const start=new Date().toISOString().split("T")[0];setTotalBudget(tb);setBudgetPeriod(per);setBudgetStart(start);LS.set("g_bgt",{tb,per,start});};
 
   // Check if this item was purchased in last 30 days (by name match, case-insensitive, or barcode)
   // Excludes Produce category. Returns array of {date, store, price} sorted most recent first, or null.
@@ -1828,7 +1847,7 @@ function App(){
           )}
         </div>
       ):(
-        <SpendingView t={t} trips={trips} setTrips={setTrips} totalBudget={totalBudget} budgetPeriod={budgetPeriod} onSetBudget={hGoals}/>
+        <SpendingView t={t} trips={trips} setTrips={setTrips} totalBudget={totalBudget} budgetPeriod={budgetPeriod} budgetStart={budgetStart} onSetBudget={hGoals}/>
       )}
 
       {scanLoading&&<LoadingOverlay t={t} msg="Looking up product..."/>}

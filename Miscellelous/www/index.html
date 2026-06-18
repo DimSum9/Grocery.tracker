@@ -972,11 +972,16 @@ function SpendingView({t,trips,setTrips,totalBudget,budgetPeriod,budgetStart,onS
     const bs=new Date(budgetStart+"T00:00:00");
     if(!isNaN(bs)&&bs.getFullYear()===now.getFullYear()&&bs.getMonth()===now.getMonth())startDay=bs.getDate();
   }
+  // Budget's prorated target rate: budget spread over the days it covers (entry → month end).
   const daysRemaining=Math.max(1,daysInMonth-startDay+1);
-  const dailyBudget=daysRemaining>0?monthBudget/daysRemaining:0;
+  const dailyBudget=monthBudget/daysRemaining;
   const weekBudget=budgetPeriod==="weekly"?totalBudget:dailyBudget*7;
-  const dailyAvailRemaining=daysRemaining>0?remaining/daysRemaining:0;
-  const weeklyAvailRemaining=dailyAvailRemaining*7;
+  // What you can still spend: remaining balance over the days ACTUALLY left from
+  // today (inclusive), capped at the remaining balance — so the final days show
+  // exactly what's left (e.g. $50 available on the last day, not a per-week figure).
+  const daysLeft=Math.max(1,daysInMonth-now.getDate()+1);
+  const dailyAvailRemaining=remaining/daysLeft;
+  const weeklyAvailRemaining=Math.min(dailyAvailRemaining*7,remaining);
   const pct=monthBudget>0?Math.min((monthSpent/monthBudget)*100,100):0;
 
   const handleReceiptCapture=({store,total,date})=>{

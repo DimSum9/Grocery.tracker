@@ -1850,12 +1850,10 @@ function App(){
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 <script>
-if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('/Grocery.tracker/sw.js',{scope:'/Grocery.tracker/'}).catch(()=>{
-      navigator.serviceWorker.register('sw.js').catch(()=>{});
-    });
-  });
+/* Native (Capacitor) build: assets are bundled in the APK, so no service worker is used.
+   Proactively unregister any SW left by an older build to avoid serving stale content. */
+if("serviceWorker" in navigator && navigator.serviceWorker.getRegistrations){
+  navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister();});}).catch(function(){});
 }
 </script>
 </body>
